@@ -145,6 +145,30 @@ async def capture_image(
     return result
 
 
+class EditEncounter(BaseModel):
+    name: Optional[str] = None
+    company: Optional[str] = None
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin: Optional[str] = None
+    vertical: Optional[str] = None
+    what_discussed: Optional[str] = None
+    sentiment: Optional[int] = None
+    meeting_requested: Optional[bool] = None
+
+
+@router.put("/{encounter_id}")
+def edit_encounter(encounter_id: str, body: EditEncounter) -> dict:
+    """Correct a capture's fields (mis-heard name, wrong company, add a phone),
+    then re-resolve identity + re-run arc/nudge. Only provided fields change."""
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    out = voice.edit_encounter(encounter_id, fields)
+    if not out.get("ok"):
+        raise HTTPException(404, out.get("error", "encounter not found"))
+    return out
+
+
 @router.post("/cascade/{contact_id}")
 def trigger_cascade(contact_id: str) -> dict:
     """Manually re-run arc + nudge. Used when the rep wants the latest

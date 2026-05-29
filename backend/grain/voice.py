@@ -24,12 +24,19 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from . import arc, db, entity_resolution, llm, nudge
 
 log = logging.getLogger("grain.voice")
+
+# Default capture-session window: inputs from the same rep within this many
+# seconds about a compatible person are STITCHED into one encounter (a real
+# handshake arrives as a burst: badge photo, then a voice note, then maybe a
+# contact card). Tunable via the `capture.stitch_window_seconds` setting.
+DEFAULT_STITCH_WINDOW_SECONDS = 120
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +128,35 @@ def capture_linkedin_fast(
     )
 
 
+def capture_contact_fast(
+    *,
+    name: Optional[str],
+    phone: Optional[str] = None,
+    rep_id: Optional[str] = None,
+    conference_id: Optional[str] = None,
+    capture_mode: str = "contact_share",
+) -> dict:
+    """A shared phone contact (Telegram contact / vCard) → encounter.
+
+    Phone is a strong identity key; name comes from the card. No LLM call — this
+    is structured data already. Stitches into an open session if the rep just
+    captured the same person another way (e.g. snapped the badge first)."""
+    nm = (name or "").strip()
+    ph = (phone or "").strip()
+    if not nm and not ph:
+        return {"ok": False, "reason": "contact card had no name or number"}
+    lead = {
+        "name": nm or None, "company": None, "title": None, "vertical": None,
+        "what_discussed": None, "soft_signals": [], "sentiment": 3,
+        "meeting_requested": False, "phone": ph or None, "linkedin": None,
+        "transcript": None,
+    }
+    return _persist_fast(
+        raw_input=f"[contact card] {nm or '?'} {ph}".strip(), structured=lead,
+        rep_id=rep_id, conference_id=conference_id, capture_mode=capture_mode,
+    )
+
+
 def _persist_fast(
     *, raw_input: str, structured: dict,
     audio_path: Optional[Path] = None,
@@ -129,20 +165,24 @@ def _persist_fast(
     conference_id: Optional[str] = None,
     capture_mode: str = "text",
 ) -> dict:
-    """Persist encounter + resolve to contact. No LLM cascade."""
-    enc_id = "enc_" + uuid.uuid4().hex[:14]
-    soft_signals = structured.get("soft_signals") or []
-    # sentiment may arrive as a non-int (e.g. "5", None, "high") — be defensive.
-    try:
-        sentiment = int(structured.get("sentiment") or 3)
-    except (ValueError, TypeError):
-        sentiment = 3
-    sentiment = max(1, min(5, sentiment))
-    meeting_requested = bool(structured.get("meeting_requested"))
-    # The audio_path column doubles as the captured-media reference (audio OR
-    # badge image) for audit / possible re-processing.
+    """Persist encounter + resolve to contact. No LLM cascade.
+
+    If this rep has an OPEN, person-compatible encounter within the capture
+    window, the new input is STITCHED into it (one handshake = one encounter)
+    rather than creating a duplicate — keeping the arc honest.
+    """
+    structured = _normalize_lead(structured)
     media_path = audio_path or image_path
 
+    stitched = _try_stitch(
+        new_structured=structured, raw_input=raw_input,
+        media_path=media_path, rep_id=rep_id, conference_id=conference_id,
+        capture_mode=capture_mode,
+    )
+    if stitched is not None:
+        return stitched
+
+    enc_id = "enc_" + uuid.uuid4().hex[:14]
     conn = db.get_conn()
     try:
         conn.execute(
@@ -154,8 +194,8 @@ def _persist_fast(
                 enc_id, None, conference_id, rep_id, db.now_iso(), capture_mode,
                 raw_input, str(media_path) if media_path else None,
                 json.dumps(structured, ensure_ascii=False),
-                json.dumps(soft_signals, ensure_ascii=False),
-                sentiment, 1 if meeting_requested else 0,
+                json.dumps(structured.get("soft_signals") or [], ensure_ascii=False),
+                structured["sentiment"], 1 if structured["meeting_requested"] else 0,
             ),
         )
     finally:
@@ -163,10 +203,27 @@ def _persist_fast(
 
     # Entity resolution is fast (deterministic fuzzy match) — keep on fast path.
     resolution = entity_resolution.resolve_and_attach(enc_id)
-    contact_id = resolution.get("contact_id")
+    return _snapshot(enc_id, structured, resolution, resolution.get("contact_id"))
 
-    # Look up CURRENT arc + nudge from the contact row, if any. This shows
-    # the rep what we already know about this person from prior encounters.
+
+def _normalize_lead(structured: dict) -> dict:
+    """Coerce the volatile fields to safe types/ranges (defensive against
+    whatever the model returned)."""
+    out = dict(structured)
+    out["soft_signals"] = out.get("soft_signals") or []
+    try:
+        s = int(out.get("sentiment") or 3)
+    except (ValueError, TypeError):
+        s = 3
+    out["sentiment"] = max(1, min(5, s))
+    out["meeting_requested"] = bool(out.get("meeting_requested"))
+    return out
+
+
+def _snapshot(enc_id: str, structured: dict, resolution: dict,
+              contact_id: Optional[str], *, stitched: bool = False) -> dict:
+    """Build the fast-path response: structured lead + PRIOR arc/nudge on the
+    resolved contact (so the rep recognises a returning contact on the floor)."""
     arc_snapshot = None
     nudge_snapshot = None
     if contact_id:
@@ -182,26 +239,175 @@ def _persist_fast(
         if row:
             if row["arc_verdict"]:
                 arc_snapshot = {
-                    "kind": row["arc_verdict"],
-                    "confidence": row["arc_confidence"],
-                    "summary": row["arc_summary"],
-                    "from_prior_encounters": True,
+                    "kind": row["arc_verdict"], "confidence": row["arc_confidence"],
+                    "summary": row["arc_summary"], "from_prior_encounters": True,
                 }
             nudge_snapshot = {
                 "nudge_active": bool(row["nudge_active"]),
-                "nudge_text": row["nudge_text"],
-                "from_prior_encounters": True,
+                "nudge_text": row["nudge_text"], "from_prior_encounters": True,
             }
-
+    decision = resolution.get("decision") if resolution else None
     return {
         "encounter_id": enc_id,
         "structured": structured,
         "resolution": resolution,
         "contact_id": contact_id,
-        "arc": arc_snapshot,           # PRIOR verdict (or null for new contact)
-        "nudge": nudge_snapshot,       # PRIOR nudge state
-        "cascade_status": "pending" if resolution["decision"] in {"created_new", "auto_merged"} else "skipped",
+        "arc": arc_snapshot,
+        "nudge": nudge_snapshot,
+        "stitched": stitched,
+        "cascade_status": "pending" if decision in {"created_new", "auto_merged"} else "skipped",
     }
+
+
+# ---------------------------------------------------------------------------
+# Capture-session stitching (time-window + auto-split)
+# ---------------------------------------------------------------------------
+def _stitch_window_seconds() -> int:
+    v = db.get_setting("capture.stitch_window_seconds")
+    try:
+        return int(v) if v is not None else DEFAULT_STITCH_WINDOW_SECONDS
+    except (ValueError, TypeError):
+        return DEFAULT_STITCH_WINDOW_SECONDS
+
+
+def _try_stitch(*, new_structured: dict, raw_input: str, media_path,
+                rep_id: Optional[str], conference_id: Optional[str],
+                capture_mode: str) -> Optional[dict]:
+    """If the rep has a recent, person-compatible encounter AT THE SAME EVENT,
+    merge into it and return its snapshot. Else None (caller creates new)."""
+    if not rep_id:
+        return None
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM encounters WHERE rep_id = ? ORDER BY captured_at DESC LIMIT 1",
+            (rep_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    enc = dict(row)
+    # Only stitch within the same event — a burst happens at one conference.
+    # (If either side is unattributed, allow it; the rep just didn't pick an event.)
+    if conference_id and enc.get("conference_id") and enc["conference_id"] != conference_id:
+        return None
+    try:
+        last = datetime.fromisoformat((enc["captured_at"] or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if (datetime.now(timezone.utc) - last).total_seconds() > _stitch_window_seconds():
+        return None  # window closed → new encounter
+
+    base = json.loads(enc.get("structured_json") or "{}")
+    base_name = (base.get("name") or "").strip()
+    new_name = (new_structured.get("name") or "").strip()
+    # Auto-split: if both inputs clearly name DIFFERENT people, don't merge.
+    if base_name and new_name:
+        if entity_resolution._name_similarity(base_name, new_name) < 0.6:
+            return None
+    merged = _merge_structured(base, new_structured)
+    return _merge_into_encounter(enc, merged, raw_input, media_path, capture_mode)
+
+
+def _merge_structured(base: dict, new: dict) -> dict:
+    """Deterministic, explainable field merge. Fill-if-missing for identity
+    fields (first capture — usually the badge — wins on conflict); union
+    signals; concat discussion; OR meeting; max sentiment."""
+    out = _normalize_lead(base)
+    for k in ("name", "company", "title", "email", "phone", "linkedin", "vertical"):
+        if not (out.get(k) or "").strip() and (new.get(k) or "").strip():
+            out[k] = new[k]
+    discussed = [d for d in [base.get("what_discussed"), new.get("what_discussed")]
+                 if (d or "").strip()]
+    if discussed:
+        out["what_discussed"] = " | ".join(dict.fromkeys(discussed))
+    out["soft_signals"] = sorted(set((base.get("soft_signals") or [])
+                                     + (new.get("soft_signals") or [])))
+    out["sentiment"] = max(_normalize_lead(base)["sentiment"],
+                           _normalize_lead(new)["sentiment"])
+    out["meeting_requested"] = bool(base.get("meeting_requested")) or bool(new.get("meeting_requested"))
+    return out
+
+
+def _merge_into_encounter(enc: dict, merged: dict, raw_input: str,
+                          media_path, capture_mode: str) -> dict:
+    modes = {m for m in (enc.get("capture_mode") or "").split("+") if m}
+    modes.add(capture_mode)
+    combined_mode = "+".join(sorted(modes))
+    new_raw = (enc.get("raw_input") or "")
+    if raw_input:
+        new_raw = (new_raw + "\n" + raw_input).strip()
+    old_contact = enc.get("contact_id")
+
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "UPDATE encounters SET structured_json = ?, soft_signals_json = ?, "
+            "sentiment = ?, meeting_requested = ?, raw_input = ?, capture_mode = ?, "
+            "audio_path = COALESCE(audio_path, ?), contact_id = NULL WHERE id = ?",
+            (
+                json.dumps(merged, ensure_ascii=False),
+                json.dumps(merged.get("soft_signals") or [], ensure_ascii=False),
+                merged["sentiment"], 1 if merged["meeting_requested"] else 0,
+                new_raw, combined_mode,
+                str(media_path) if media_path else None, enc["id"],
+            ),
+        )
+    finally:
+        conn.close()
+
+    resolution = entity_resolution.resolve_and_attach(enc["id"])
+    new_contact = resolution.get("contact_id")
+    # The merge gained fields (phone/title/email) — backfill the contact's empty
+    # primaries so the enrichment isn't stranded on the encounter.
+    if new_contact:
+        _enrich_contact_from_struct(new_contact, merged)
+    # If re-resolution moved the encounter to a different contact, the original
+    # (created seconds ago by the first message) may be orphaned — clean it up.
+    if old_contact and old_contact != new_contact:
+        _delete_if_orphan(old_contact)
+    return _snapshot(enc["id"], merged, resolution, new_contact, stitched=True)
+
+
+def _enrich_contact_from_struct(contact_id: str, struct: dict) -> None:
+    conn = db.get_conn()
+    try:
+        row = conn.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+        if not row:
+            return
+        c = dict(row)
+        updates = {}
+        pairs = [
+            ("primary_email", struct.get("email")),
+            ("primary_company", struct.get("company")),
+            ("primary_title", struct.get("title") or struct.get("role")),
+            ("linkedin_handle", struct.get("linkedin")),
+            ("phone", struct.get("phone")),
+        ]
+        for col, val in pairs:
+            if (val or "").strip() and not (c.get(col) or "").strip():
+                updates[col] = val
+        if updates:
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(f"UPDATE contacts SET {sets}, updated_at = ? WHERE id = ?",
+                         (*updates.values(), db.now_iso(), contact_id))
+    finally:
+        conn.close()
+
+
+def _delete_if_orphan(contact_id: str) -> None:
+    """Delete a contact that has no remaining encounters (created then stitched
+    away within the same capture session)."""
+    conn = db.get_conn()
+    try:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM encounters WHERE contact_id = ?", (contact_id,)
+        ).fetchone()[0]
+        if n == 0:
+            conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -282,3 +488,78 @@ def capture_linkedin(**kwargs) -> dict:
         fast["nudge"] = cascade.get("nudge")
         fast["cascade_status"] = "complete"
     return fast
+
+
+def capture_contact(**kwargs) -> dict:
+    """Synchronous shared-contact capture (cascade inline). Telegram path."""
+    fast = capture_contact_fast(**kwargs)
+    if fast.get("contact_id") and fast.get("cascade_status") == "pending":
+        cascade = run_cascade_in_background(fast["contact_id"])
+        fast["arc"] = cascade.get("arc")
+        fast["nudge"] = cascade.get("nudge")
+        fast["cascade_status"] = "complete"
+    return fast
+
+
+# ---------------------------------------------------------------------------
+# Edit a capture — correct mis-heard fields, then re-resolve + re-cascade
+# ---------------------------------------------------------------------------
+_EDITABLE_FIELDS = {"name", "company", "title", "email", "phone", "linkedin",
+                    "vertical", "what_discussed", "sentiment", "meeting_requested"}
+
+
+def edit_encounter(encounter_id: str, fields: dict) -> dict:
+    """Apply rep corrections to an encounter's structured lead, then re-resolve
+    identity (name/company/phone may have changed) and re-run arc + nudge.
+
+    Changing identity can re-point the encounter to a different contact; the
+    previously-attached contact is cleaned up if it's left with no encounters.
+    """
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT structured_json, contact_id FROM encounters WHERE id = ?",
+            (encounter_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {"ok": False, "error": "encounter_not_found"}
+
+    structured = json.loads(row["structured_json"] or "{}")
+    old_contact = row["contact_id"]
+    for k, v in (fields or {}).items():
+        if k in _EDITABLE_FIELDS:
+            structured[k] = v
+    structured = _normalize_lead(structured)
+
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "UPDATE encounters SET structured_json = ?, soft_signals_json = ?, "
+            "sentiment = ?, meeting_requested = ?, contact_id = NULL WHERE id = ?",
+            (
+                json.dumps(structured, ensure_ascii=False),
+                json.dumps(structured.get("soft_signals") or [], ensure_ascii=False),
+                structured["sentiment"], 1 if structured["meeting_requested"] else 0,
+                encounter_id,
+            ),
+        )
+    finally:
+        conn.close()
+
+    resolution = entity_resolution.resolve_and_attach(encounter_id)
+    new_contact = resolution.get("contact_id")
+    if new_contact:
+        _enrich_contact_from_struct(new_contact, structured)
+    if old_contact and old_contact != new_contact:
+        _delete_if_orphan(old_contact)
+    # Editing is off the floor — run the cascade inline so the corrected verdict
+    # is immediately visible.
+    if new_contact:
+        run_cascade_in_background(new_contact)
+        if old_contact and old_contact != new_contact:
+            run_cascade_in_background(old_contact)
+    snap = _snapshot(encounter_id, structured, resolution, new_contact)
+    snap["ok"] = True
+    return snap

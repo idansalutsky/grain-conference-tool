@@ -174,23 +174,24 @@ def test_followup_event_batch_endpoint(no_llm_key):
 @patch("grain.voice.llm.text_to_lead")
 def test_hubspot_push_event_dry_run_skips_no_email(mock_llm, no_llm_key):
     _make_conf(cid="conf-hs-evt", name="HS Event 2026")
-    # One with email, one without.
+    # Two clearly-different people, captured by two different reps, so capture
+    # stitching never merges them: one has an email, one doesn't.
     mock_llm.return_value = {
-        "name": "Has Email", "title": "CFO", "company": "HasCo",
+        "name": "Quentin Withemail", "title": "CFO", "company": "HasCo",
         "email": "cfo@hasco.com", "vertical": "payments", "sentiment": 4,
         "soft_signals": [], "meeting_requested": False, "what_discussed": "x",
         "transcript": "",
     }
     client.post("/api/encounters/text", json={
-        "text": "has email", "rep_id": "rep-na-01", "conference_id": "conf-hs-evt"})
+        "text": "has email", "rep_id": "rep-hs-a", "conference_id": "conf-hs-evt"})
     mock_llm.return_value = {
-        "name": "No Email", "title": "CFO", "company": "NoCo",
+        "name": "Zara Noemail", "title": "CFO", "company": "NoCo",
         "email": None, "vertical": "payments", "sentiment": 4,
         "soft_signals": [], "meeting_requested": False, "what_discussed": "y",
         "transcript": "",
     }
     client.post("/api/encounters/text", json={
-        "text": "no email", "rep_id": "rep-na-01", "conference_id": "conf-hs-evt"})
+        "text": "no email", "rep_id": "rep-hs-b", "conference_id": "conf-hs-evt"})
 
     out = hubspot.push_event("conf-hs-evt", dry_run=True)
     assert out["ok"]

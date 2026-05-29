@@ -375,6 +375,29 @@ def handle_update(update: dict) -> dict:
         send_message(chat_id, _intel_reply(result))
         return {"action": "voice_encounter", "encounter_id": result["encounter_id"]}
 
+    # Shared contact card (phone number + name via vCard) — a strong identity
+    # key. Stitches into an open session if the rep just snapped this person's
+    # badge or sent a voice note.
+    contact_obj = msg.get("contact")
+    if contact_obj:
+        full = " ".join(p for p in [contact_obj.get("first_name"),
+                                    contact_obj.get("last_name")] if p).strip()
+        try:
+            result = voice.capture_contact(
+                name=full or None, phone=contact_obj.get("phone_number"),
+                rep_id=rep["id"], capture_mode="telegram_contact",
+                conference_id=active_conf,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("contact capture failed: %s", exc)
+            send_message(chat_id, "Something broke saving that contact.")
+            return {"action": "contact_capture_failed", "error": str(exc)[:200]}
+        if not result.get("ok", True):
+            send_message(chat_id, result.get("reason", "Couldn't use that contact."))
+            return {"action": "contact_unusable"}
+        send_message(chat_id, _intel_reply(result))
+        return {"action": "contact_encounter", "encounter_id": result["encounter_id"]}
+
     # Badge / business-card photo — Telegram sends an array of sizes; the last
     # is the largest (best for OCR). A caption, if present, is kept as context.
     photos = msg.get("photo") or []

@@ -163,7 +163,7 @@ export function CapturePage() {
         </div>
       </div>
 
-      {result && <CaptureResultCard result={result} />}
+      {result && <CaptureResultCard key={result.encounter_id} result={result} />}
     </div>
   );
 }

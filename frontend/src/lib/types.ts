@@ -101,11 +101,13 @@ export interface CaptureResult {
   encounter_id: string;
   contact_id?: string | null;
   cascade_status?: "pending" | "complete" | "skipped";
+  stitched?: boolean;
   structured?: {
     name?: string | null;
     title?: string | null;
     company?: string | null;
     vertical?: string | null;
+    phone?: string | null;
     sentiment?: number | null;
     soft_signals?: string[];
     meeting_requested?: boolean;

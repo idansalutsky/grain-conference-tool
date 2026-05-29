@@ -202,6 +202,35 @@ CREATE TABLE IF NOT EXISTS coverage (
 );
 CREATE INDEX IF NOT EXISTS idx_coverage_conf ON coverage(conference_id);
 CREATE INDEX IF NOT EXISTS idx_coverage_rep ON coverage(rep_id);
+
+-- ---------------------------------------------------------------------------
+-- Grain Brain — long-term memory "spaces" (LangGraph agent subsystem).
+-- brain_memory      : namespaced memory items (one row per fact), upserted by
+--                     (space, item_key). content_json is the compressed payload.
+-- brain_space_summary: ONE rolling, compressed summary per space — what readers
+--                     consume so the brain stays bounded ("don't overflow").
+-- (LangGraph's own checkpoint tables are created by SqliteSaver.setup().)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS brain_memory (
+    id              TEXT PRIMARY KEY,
+    space           TEXT NOT NULL,   -- icp / events / playbook / gaps / relationship
+    item_key        TEXT NOT NULL,   -- dedupe key within the space
+    content_json    TEXT,            -- the compressed item payload
+    salience        REAL,            -- 0..1, drives summary ordering + budget
+    provenance      TEXT,            -- where this came from (seed:/capture:/discovery:)
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    UNIQUE(space, item_key)
+);
+CREATE INDEX IF NOT EXISTS idx_brain_mem_space ON brain_memory(space);
+CREATE INDEX IF NOT EXISTS idx_brain_mem_salience ON brain_memory(space, salience DESC);
+
+CREATE TABLE IF NOT EXISTS brain_space_summary (
+    space           TEXT PRIMARY KEY,
+    summary         TEXT,
+    item_count      INTEGER,
+    updated_at      TEXT NOT NULL
+);
 """
 
 
@@ -230,6 +259,7 @@ _INCREMENTAL_COLUMNS = [
     ("conferences", "audience_composition_json", "TEXT"),
     ("conferences", "source_url", "TEXT"),
     ("people", "verified", "INTEGER DEFAULT 0"),
+    ("contacts", "phone", "TEXT"),
 ]
 
 

@@ -133,6 +133,21 @@ def _linkedin_match(a: Optional[str], b: Optional[str]) -> float:
     return 1.0 if _fold(a).replace(" ", "-") == _fold(b).replace(" ", "-") else 0.0
 
 
+def _phone_digits(p: Optional[str]) -> str:
+    """Last 10 digits — tolerates +country codes, spaces, dashes, parens."""
+    if not p:
+        return ""
+    digits = re.sub(r"\D+", "", p)
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _phone_match(a: Optional[str], b: Optional[str]) -> float:
+    da, db_ = _phone_digits(a), _phone_digits(b)
+    if not da or not db_ or len(da) < 7:
+        return 0.0
+    return 1.0 if da == db_ else 0.0
+
+
 # ---------------------------------------------------------------------------
 # Scoring + decision
 # ---------------------------------------------------------------------------
@@ -148,6 +163,7 @@ def _factor_breakdown(enc: dict, contact_row: dict) -> dict:
     return {
         "email_match": _email_match(enc.get("email"), contact_row.get("primary_email")),
         "linkedin_match": _linkedin_match(enc.get("linkedin"), contact_row.get("linkedin_handle")),
+        "phone_match": _phone_match(enc.get("phone"), contact_row.get("phone")),
         "name_similarity": _name_similarity(enc.get("name") or "", contact_row.get("primary_name") or ""),
         "company_similarity": _company_similarity(enc.get("company"), contact_row.get("primary_company")),
     }
@@ -157,6 +173,7 @@ def _score_factors(f: dict, *, both_emails_present: bool = False) -> float:
     """Compose factors into 0..1 confidence with transparent rules."""
     email = f["email_match"]
     li = f["linkedin_match"]
+    phone = f.get("phone_match", 0.0)
     name = f["name_similarity"]
     comp = f["company_similarity"]
 
@@ -167,6 +184,12 @@ def _score_factors(f: dict, *, both_emails_present: bool = False) -> float:
         return 0.6 + 0.4 * name
     if li == 1.0:
         return 0.95
+    # Phone is a strong identity key (a shared contact card), but a shared
+    # office/switchboard number could collide — require a name nod too.
+    if phone == 1.0 and name >= 0.5:
+        return 0.93
+    if phone == 1.0:
+        return 0.75  # phone-only → review band, not auto-merge
 
     # Two real people, same name + same company + different emails →
     # cap at review_needed band.
@@ -261,11 +284,12 @@ def create_contact_from_encounter(enc_struct: dict) -> str:
     try:
         conn.execute(
             "INSERT INTO contacts (id, primary_name, primary_email, primary_company, "
-            "primary_title, linkedin_handle, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
+            "primary_title, linkedin_handle, phone, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
             (cid, name, enc_struct.get("email"), enc_struct.get("company"),
              enc_struct.get("role") or enc_struct.get("title"),
-             enc_struct.get("linkedin"), db.now_iso(), db.now_iso()),
+             enc_struct.get("linkedin"), enc_struct.get("phone"),
+             db.now_iso(), db.now_iso()),
         )
     finally:
         conn.close()

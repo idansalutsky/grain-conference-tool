@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -16,7 +17,31 @@ interface Props {
  */
 export function CaptureResultCard({ result }: Props) {
   const { push: toast } = useToast();
-  const s = result.structured || {};
+  const [s, setS] = useState<any>(result.structured || {});
+  const [contactId, setContactId] = useState(result.contact_id);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  const saveEdit = useMutation({
+    mutationFn: () => api.put<any>(`/api/encounters/${result.encounter_id}`, draft),
+    onSuccess: (d) => {
+      setS(d.structured || {});
+      setContactId(d.contact_id);
+      setEditing(false);
+      setDraft({});
+      toast("success", "Capture corrected — re-resolved");
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  function startEdit() {
+    setDraft({
+      name: s.name || "", company: s.company || "",
+      title: s.title || "", phone: (s as any).phone || "",
+    });
+    setEditing(true);
+  }
+
   const initialArc = result.arc;
   const initialNudge = result.nudge;
   const cascadePending = result.cascade_status === "pending";
@@ -61,7 +86,7 @@ export function CaptureResultCard({ result }: Props) {
   const cascadeStillRunning = cascadePending && !contactQuery.data?.arc_verdict;
 
   const push = useMutation({
-    mutationFn: () => api.post<any>(`/api/hubspot/push/${result.contact_id}`),
+    mutationFn: () => api.post<any>(`/api/hubspot/push/${contactId}`),
     onSuccess: (d) => {
       toast("success", d?.dry_run ? "Pushed to HubSpot (dry-run)" : "Pushed to HubSpot");
     },
@@ -70,16 +95,51 @@ export function CaptureResultCard({ result }: Props) {
 
   return (
     <div className="card p-5 mt-4" style={{ background: "oklch(0.98 0.02 158)", borderColor: "oklch(0.85 0.06 158)" }}>
-      <div className="label mb-1" style={{ color: "oklch(0.45 0.1 158)" }}>Captured</div>
-      <div className="font-semibold text-lg">
-        {s.name || "?"}
-        <span className="text-ink-500 font-normal"> — {s.title || "?"}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="label mb-1" style={{ color: "oklch(0.45 0.1 158)" }}>
+          Captured{result.stitched && " · merged into this encounter"}
+        </div>
+        {!editing && (
+          <button onClick={startEdit} className="btn-ghost h-7 text-xs !px-2 text-ink-500">
+            ✎ Fix details
+          </button>
+        )}
       </div>
-      <div className="text-sm text-ink-500">
-        {s.company || "?"} · {s.vertical || "?"}
-      </div>
-      {s.what_discussed && (
-        <p className="text-sm mt-2 text-ink-700 italic">"{s.what_discussed}"</p>
+
+      {editing ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+          {(["name", "company", "title", "phone"] as const).map((f) => (
+            <label key={f} className="text-xs">
+              <span className="text-ink-500 capitalize">{f}</span>
+              <input
+                className="input w-full mt-0.5"
+                value={draft[f] ?? ""}
+                onChange={(e) => setDraft((p) => ({ ...p, [f]: e.target.value }))}
+              />
+            </label>
+          ))}
+          <div className="sm:col-span-2 flex gap-2 mt-1">
+            <button className="btn-primary text-xs" disabled={saveEdit.isPending}
+                    onClick={() => saveEdit.mutate()}>
+              {saveEdit.isPending ? "Saving…" : "Save & re-resolve"}
+            </button>
+            <button className="btn-ghost text-xs" onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="font-semibold text-lg">
+            {s.name || "?"}
+            <span className="text-ink-500 font-normal"> — {s.title || "?"}</span>
+          </div>
+          <div className="text-sm text-ink-500">
+            {s.company || "?"} · {s.vertical || "?"}
+            {(s as any).phone && <> · {(s as any).phone}</>}
+          </div>
+          {s.what_discussed && (
+            <p className="text-sm mt-2 text-ink-700 italic">"{s.what_discussed}"</p>
+          )}
+        </>
       )}
 
       <div className="flex flex-wrap gap-2 mt-3">
@@ -104,11 +164,11 @@ export function CaptureResultCard({ result }: Props) {
             {result.resolution?.decision === "auto_merged" &&
               "Auto-merged into existing contact"}
             {result.resolution?.decision === "review_needed" && "Needs human review"}
-            {result.contact_id && (
+            {contactId && (
               <>
                 {" · "}
                 <Link
-                  to={`/contacts/${result.contact_id}`}
+                  to={`/contacts/${contactId}`}
                   className="text-brand hover:underline"
                 >
                   open contact →
@@ -155,7 +215,7 @@ export function CaptureResultCard({ result }: Props) {
         </div>
       )}
 
-      {result.contact_id && (
+      {contactId && (
         <div className="mt-4 pt-3 border-t border-ink-200 flex gap-2 items-center flex-wrap">
           <button
             onClick={() => push.mutate()}
@@ -165,7 +225,7 @@ export function CaptureResultCard({ result }: Props) {
             {push.isPending ? "Pushing…" : "↗ Push to HubSpot"}
           </button>
           <Link
-            to={`/contacts/${result.contact_id}`}
+            to={`/contacts/${contactId}`}
             className="btn-secondary text-xs"
           >
             Open contact →

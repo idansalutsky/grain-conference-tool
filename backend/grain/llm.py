@@ -138,6 +138,7 @@ EXTRACT_SYSTEM = (
     "  sentiment      — 1 (cold) to 5 (very warm)\n"
     "  meeting_requested — boolean\n"
     "  linkedin       — a LinkedIn profile URL if one is visible/derivable, else null\n"
+    "  phone          — a phone number if the rep stated one, else null\n"
     "  transcript     — verbatim transcript in original language\n"
     "If a field is unknown, use null (or empty array)."
 )
@@ -158,6 +159,7 @@ BADGE_SYSTEM = (
     "  company        — company/organisation as printed (string OR null)\n"
     "  title          — job title if printed (string OR null)\n"
     "  email          — email if printed on a card (string OR null)\n"
+    "  phone          — phone number if printed on a card (string OR null)\n"
     "  vertical       — one of: fintech_other / payments / travel / saas / "
     "treasury / crypto / unknown (infer from the company if you can)\n"
     "  what_discussed — null (a photo carries no conversation)\n"
