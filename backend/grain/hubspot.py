@@ -34,11 +34,12 @@ HUBSPOT_API = "https://api.hubapi.com"
 CUSTOM_PROPS = [
     "grain_arc_verdict", "grain_arc_confidence", "grain_arc_summary",
     "grain_nudge_active", "grain_nudge_text",
-    "grain_last_encounter_at", "grain_followup_draft",
+    "grain_last_encounter_at", "grain_followup_draft", "grain_source_event",
 ]
 
 
-def _contact_payload(contact: dict, latest_enc: Optional[dict]) -> dict:
+def _contact_payload(contact: dict, latest_enc: Optional[dict],
+                     event_name: Optional[str] = None) -> dict:
     name = contact.get("primary_name") or ""
     first, *rest = name.split(" ")
     last = " ".join(rest)
@@ -57,6 +58,8 @@ def _contact_payload(contact: dict, latest_enc: Optional[dict]) -> dict:
     if latest_enc:
         props["grain_last_encounter_at"] = latest_enc["captured_at"]
         props["grain_followup_draft"] = latest_enc.get("followup_draft") or ""
+    if event_name:
+        props["grain_source_event"] = event_name
     return {"properties": props}
 
 
@@ -75,15 +78,22 @@ def push_contact(contact_id: str, *, dry_run: Optional[bool] = None) -> dict:
             return {"ok": False, "error": "contact_not_found"}
         contact = dict(crow)
         latest_enc_row = conn.execute(
-            "SELECT captured_at, followup_draft FROM encounters "
+            "SELECT captured_at, followup_draft, conference_id FROM encounters "
             "WHERE contact_id = ? ORDER BY captured_at DESC LIMIT 1",
             (contact_id,),
         ).fetchone()
         latest_enc = dict(latest_enc_row) if latest_enc_row else None
+        event_name = None
+        if latest_enc and latest_enc.get("conference_id"):
+            crow2 = conn.execute(
+                "SELECT name FROM conferences WHERE id = ?",
+                (latest_enc["conference_id"],),
+            ).fetchone()
+            event_name = crow2["name"] if crow2 else None
     finally:
         conn.close()
 
-    payload = _contact_payload(contact, latest_enc)
+    payload = _contact_payload(contact, latest_enc, event_name)
 
     if dry_run:
         log.info("[HubSpot DRY-RUN] would PUSH contact=%s email=%s",
@@ -135,3 +145,44 @@ def push_contact(contact_id: str, *, dry_run: Optional[bool] = None) -> dict:
             conn.close()
     return {"ok": True, "status_code": r.status_code,
             "hubspot_id": hubspot_id, "payload": payload}
+
+
+def push_event(conference_id: str, *, dry_run: Optional[bool] = None) -> dict:
+    """Post-event close: push every contact met at one event to HubSpot, each
+    carrying its grain_* intelligence (arc, nudge, follow-up draft, source
+    event). Returns a per-contact summary. Contacts with no email are reported
+    as skipped (HubSpot upsert keys on email)."""
+    conn = db.get_conn()
+    try:
+        crow = conn.execute(
+            "SELECT name FROM conferences WHERE id = ?", (conference_id,)
+        ).fetchone()
+        if not crow:
+            return {"ok": False, "error": "conference_not_found"}
+        rows = conn.execute(
+            "SELECT DISTINCT e.contact_id, c.primary_email "
+            "FROM encounters e JOIN contacts c ON c.id = e.contact_id "
+            "WHERE e.conference_id = ? AND e.contact_id IS NOT NULL",
+            (conference_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    pushed, skipped, failed = [], [], []
+    for r in rows:
+        cid = r["contact_id"]
+        if not (r["primary_email"] or "").strip():
+            skipped.append({"contact_id": cid, "reason": "no email on contact"})
+            continue
+        res = push_contact(cid, dry_run=dry_run)
+        if res.get("ok"):
+            pushed.append({"contact_id": cid, "hubspot_id": res.get("hubspot_id"),
+                           "dry_run": res.get("dry_run", False)})
+        else:
+            failed.append({"contact_id": cid, "error": res.get("error")})
+
+    return {
+        "ok": True, "conference_id": conference_id, "event_name": crow["name"],
+        "pushed": len(pushed), "skipped": len(skipped), "failed": len(failed),
+        "detail": {"pushed": pushed, "skipped": skipped, "failed": failed},
+    }

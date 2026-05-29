@@ -14,6 +14,7 @@ fallback capture path that always works.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -25,6 +26,11 @@ from . import config, db, voice
 log = logging.getLogger("grain.telegram")
 
 TELEGRAM_API = "https://api.telegram.org"
+
+# A message that is *just* a LinkedIn profile URL → capture as an identity.
+_LINKEDIN_ONLY_RE = re.compile(
+    r"^\s*(https?://)?([a-z0-9-]+\.)?linkedin\.com/in/[^\s]+\s*$", re.IGNORECASE
+)
 
 # The path the FastAPI webhook route is mounted at. Telegram POSTs updates here.
 WEBHOOK_PATH = "/api/telegram/webhook"
@@ -147,7 +153,9 @@ def send_message(chat_id: int, text: str, *, parse_mode: Optional[str] = "Markdo
     return r.json()
 
 
-def download_voice(file_id: str) -> Optional[Path]:
+def download_file(file_id: str, *, fallback_ext: str = ".bin") -> Optional[Path]:
+    """Download any Telegram file by id. Keeps the server-side extension when
+    Telegram provides one (so audio/image format is honest downstream)."""
     if not config.TELEGRAM_BOT_TOKEN:
         return None
     try:
@@ -161,17 +169,22 @@ def download_voice(file_id: str) -> Optional[Path]:
             file_path = (r.json().get("result") or {}).get("file_path")
             if not file_path:
                 return None
+            ext = Path(file_path).suffix or fallback_ext
             r2 = client.get(
                 f"{TELEGRAM_API}/file/bot{config.TELEGRAM_BOT_TOKEN}/{file_path}"
             )
             if r2.status_code >= 400:
                 return None
-            local = config.AUDIO_DIR / f"telegram_{file_id[:12]}.ogg"
+            local = config.AUDIO_DIR / f"telegram_{file_id[:12]}{ext}"
             local.write_bytes(r2.content)
             return local
     except httpx.HTTPError as exc:
-        log.warning("download_voice failed: %s", exc)
+        log.warning("download_file failed: %s", exc)
         return None
+
+
+def download_voice(file_id: str) -> Optional[Path]:
+    return download_file(file_id, fallback_ext=".ogg")
 
 
 # ---------------------------------------------------------------------------
@@ -317,14 +330,14 @@ def handle_update(update: dict) -> dict:
             reply = (
                 f"Linked! You're now bound to *{rep['full_name']}*.\n"
                 f"Active event: *{conf_name}*\n\n"
-                "Send a voice memo or text any time — every capture auto-tags "
-                "to this event."
+                "Send a voice memo, a text, a *photo of their badge*, or just a "
+                "*LinkedIn link* — every capture auto-tags to this event."
             )
         else:
             reply = (
                 f"Linked! You're now bound to *{rep['full_name']}*.\n\n"
-                "Send a voice memo or text any time — I'll log it and reply "
-                "with intel on who you just met."
+                "Send a voice memo, text, badge photo, or a LinkedIn link — I'll "
+                "log it and reply with intel on who you just met."
             )
         send_message(chat_id, reply)
         return {"action": "rep_bound", "rep_id": rep["id"],
@@ -361,6 +374,47 @@ def handle_update(update: dict) -> dict:
             return {"action": "voice_capture_failed", "error": str(exc)[:200]}
         send_message(chat_id, _intel_reply(result))
         return {"action": "voice_encounter", "encounter_id": result["encounter_id"]}
+
+    # Badge / business-card photo — Telegram sends an array of sizes; the last
+    # is the largest (best for OCR). A caption, if present, is kept as context.
+    photos = msg.get("photo") or []
+    if photos:
+        file_id = (photos[-1] or {}).get("file_id")
+        local = download_file(file_id, fallback_ext=".jpg") if file_id else None
+        if local is None:
+            send_message(chat_id, "Couldn't download that photo — try again or type the name.")
+            return {"action": "photo_download_failed"}
+        try:
+            result = voice.capture_image(
+                image_path=local, rep_id=rep["id"], capture_mode="telegram_badge",
+                conference_id=active_conf,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("badge capture failed: %s", exc)
+            send_message(chat_id, "Something broke reading that badge.")
+            return {"action": "badge_capture_failed", "error": str(exc)[:200]}
+        if not result.get("ok", True):
+            send_message(chat_id, "📷 " + result.get("reason", "Couldn't read the badge — retry."))
+            return {"action": "badge_unreadable"}
+        send_message(chat_id, _intel_reply(result))
+        return {"action": "badge_encounter", "encounter_id": result["encounter_id"]}
+
+    # A bare LinkedIn URL → capture as an identity (strong match key).
+    if text and _LINKEDIN_ONLY_RE.match(text):
+        try:
+            result = voice.capture_linkedin(
+                url=text.strip(), rep_id=rep["id"], capture_mode="telegram_linkedin",
+                conference_id=active_conf,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("linkedin capture failed: %s", exc)
+            send_message(chat_id, "Something broke processing that LinkedIn link.")
+            return {"action": "linkedin_capture_failed", "error": str(exc)[:200]}
+        if not result.get("ok", True):
+            send_message(chat_id, result.get("reason", "Couldn't use that link."))
+            return {"action": "linkedin_unusable"}
+        send_message(chat_id, _intel_reply(result))
+        return {"action": "linkedin_encounter", "encounter_id": result["encounter_id"]}
 
     # Plain text
     if text:

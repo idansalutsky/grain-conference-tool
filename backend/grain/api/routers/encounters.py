@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -13,6 +14,15 @@ from pydantic import BaseModel
 from ... import config, db, voice
 
 router = APIRouter(prefix="/api/encounters", tags=["encounters"])
+
+# A message that is *just* a LinkedIn profile URL (optionally wrapped in
+# whitespace) → route to the LinkedIn capture path rather than text extraction.
+_LINKEDIN_ONLY_RE = re.compile(
+    r"^\s*(https?://)?([a-z0-9-]+\.)?linkedin\.com/in/[^\s]+\s*$", re.IGNORECASE
+)
+
+# Image content-types we accept for badge capture.
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic"}
 
 
 class TextCapture(BaseModel):
@@ -61,10 +71,18 @@ def capture_text(body: TextCapture, background_tasks: BackgroundTasks) -> dict:
     """
     if not body.text.strip():
         raise HTTPException(400, "text is required")
-    result = voice.capture_text_fast(
-        text=body.text, rep_id=body.rep_id,
-        conference_id=body.conference_id, capture_mode="web_text",
-    )
+    # If the rep just pasted a LinkedIn URL, capture it as an identity (the URL
+    # is a strong entity-resolution key) instead of trying to extract prose.
+    if _LINKEDIN_ONLY_RE.match(body.text):
+        result = voice.capture_linkedin_fast(
+            url=body.text.strip(), rep_id=body.rep_id,
+            conference_id=body.conference_id, capture_mode="web_linkedin",
+        )
+    else:
+        result = voice.capture_text_fast(
+            text=body.text, rep_id=body.rep_id,
+            conference_id=body.conference_id, capture_mode="web_text",
+        )
     if result.get("contact_id") and result.get("cascade_status") == "pending":
         background_tasks.add_task(voice.run_cascade_in_background, result["contact_id"])
     return result
@@ -91,6 +109,36 @@ async def capture_voice(
     result = voice.capture_voice_fast(
         audio_path=local, rep_id=rep_id,
         conference_id=conference_id, capture_mode="web_voice",
+    )
+    if result.get("contact_id") and result.get("cascade_status") == "pending":
+        background_tasks.add_task(voice.run_cascade_in_background, result["contact_id"])
+    return result
+
+
+@router.post("/image", status_code=201)
+async def capture_image(
+    background_tasks: BackgroundTasks,
+    image: UploadFile = File(...),
+    rep_id: Optional[str] = Form(None),
+    conference_id: Optional[str] = Form(None),
+) -> dict:
+    """Badge / business-card photo → OCR → structured lead → resolve. ~3-4s.
+
+    Returns ok:false (no contact created) when OCR can't read a name, so the
+    rep can retry instead of getting a junk contact. Arc + nudge run in the
+    background as with the other capture paths.
+    """
+    if not image.filename:
+        raise HTTPException(400, "image file required")
+    suffix = Path(image.filename).suffix.lower()
+    if suffix not in _IMAGE_SUFFIXES:
+        raise HTTPException(400, f"unsupported image type {suffix or '?'}")
+    local = config.AUDIO_DIR / f"badge_{uuid.uuid4().hex[:12]}{suffix}"
+    with local.open("wb") as f:
+        shutil.copyfileobj(image.file, f)
+    result = voice.capture_image_fast(
+        image_path=local, rep_id=rep_id,
+        conference_id=conference_id, capture_mode="badge_photo",
     )
     if result.get("contact_id") and result.get("cascade_status") == "pending":
         background_tasks.add_task(voice.run_cascade_in_background, result["contact_id"])

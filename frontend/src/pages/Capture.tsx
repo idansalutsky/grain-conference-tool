@@ -51,6 +51,25 @@ export function CapturePage() {
     onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
+  const badge_mut = useMutation({
+    mutationFn: (file: File) =>
+      api.uploadImage<CaptureResult & { ok?: boolean; reason?: string }>(
+        "/api/encounters/image", file,
+        { rep_id: DEFAULT_REP_ID, conference_id: confId || "" },
+      ),
+    onSuccess: (d) => {
+      if ((d as any).ok === false) {
+        toast("error", (d as any).reason || "Couldn't read the badge — retry.");
+        return;
+      }
+      setResult(d);
+      toast("success", "Badge captured");
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const busy = voice_mut.isPending || text_mut.isPending || badge_mut.isPending;
+
   return (
     <div>
       <h1 className="text-2xl mb-1">Field Capture</h1>
@@ -83,7 +102,7 @@ export function CapturePage() {
           <AudioRecorder
             onTranscript={(t) => text_mut.mutate(t)}
             onComplete={(blob) => voice_mut.mutate(blob)}
-            disabled={voice_mut.isPending || text_mut.isPending}
+            disabled={busy}
             processingLabel="Transcribing + extracting…"
             onError={(msg) => toast("error", msg)}
           />
@@ -94,7 +113,36 @@ export function CapturePage() {
         </div>
 
         <div className="card p-5">
-          <div className="label mb-2">⌨️ Or type it</div>
+          <div className="label mb-2">📷 Snap their badge</div>
+          <label
+            className={
+              "block w-full py-6 rounded-lg text-lg font-semibold text-center cursor-pointer transition " +
+              (busy ? "bg-ink-200 text-ink-500 cursor-not-allowed" : "bg-ink-900 text-white hover:bg-ink-700")
+            }
+          >
+            {badge_mut.isPending ? "Reading badge…" : "Tap to photograph"}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={busy}
+              className="sr-only"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) badge_mut.mutate(f);
+                e.target.value = ""; // allow re-selecting the same file
+              }}
+            />
+          </label>
+          <p className="text-xs text-ink-500 mt-3">
+            Faster than typing on a loud floor — the AI reads name, company and
+            title off the badge or business card. Bad read? It asks you to retry
+            rather than inventing a name.
+          </p>
+        </div>
+
+        <div className="card p-5 md:col-span-2">
+          <div className="label mb-2">⌨️ Or type it — or paste a LinkedIn URL</div>
           <label htmlFor="capture-text" className="sr-only">
             Capture text
           </label>
@@ -102,12 +150,12 @@ export function CapturePage() {
             id="capture-text"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder='e.g. "Just met Sarah Cohen, CFO of Booking, runs treasury, wants to talk hedging next week"'
-            className="input w-full h-36 resize-none"
+            placeholder={'e.g. "Just met Sarah Cohen, CFO of Booking, runs treasury, wants to talk hedging next week" — or just paste linkedin.com/in/…'}
+            className="input w-full h-28 resize-none"
           />
           <button
             onClick={() => text_mut.mutate(text)}
-            disabled={!text.trim() || text_mut.isPending}
+            disabled={!text.trim() || busy}
             className="btn-primary w-full mt-3"
           >
             {text_mut.isPending ? "Processing…" : "Capture"}

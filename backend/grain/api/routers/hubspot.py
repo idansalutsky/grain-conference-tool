@@ -14,3 +14,12 @@ def push_contact(contact_id: str, dry_run: bool | None = None) -> dict:
     if not out.get("ok") and out.get("error") == "contact_not_found":
         raise HTTPException(404, "contact not found")
     return out
+
+
+@router.post("/push-event/{conference_id}")
+def push_event(conference_id: str, dry_run: bool | None = None) -> dict:
+    """Post-event close: push everyone met at this event (with grain_* intel)."""
+    out = hs.push_event(conference_id, dry_run=dry_run)
+    if not out.get("ok") and out.get("error") == "conference_not_found":
+        raise HTTPException(404, "conference not found")
+    return out

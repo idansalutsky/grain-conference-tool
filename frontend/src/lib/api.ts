@@ -48,4 +48,15 @@ export const api = {
     }
     return r.json() as Promise<T>;
   },
+  uploadImage: async <T>(p: string, image: File, fields: Record<string, string>) => {
+    const fd = new FormData();
+    fd.append("image", image, image.name || "badge.jpg");
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    const r = await fetch(BASE + p, { method: "POST", body: fd });
+    if (!r.ok) {
+      let d = ""; try { d = (await r.json())?.detail || ""; } catch {}
+      throw new Error(d || `${r.status}`);
+    }
+    return r.json() as Promise<T>;
+  },
 };

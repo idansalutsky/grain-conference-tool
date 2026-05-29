@@ -137,8 +137,38 @@ EXTRACT_SYSTEM = (
     "strong_fit_signal / time_sensitive / lukewarm / dismissive\n"
     "  sentiment      — 1 (cold) to 5 (very warm)\n"
     "  meeting_requested — boolean\n"
+    "  linkedin       — a LinkedIn profile URL if one is visible/derivable, else null\n"
     "  transcript     — verbatim transcript in original language\n"
     "If a field is unknown, use null (or empty array)."
+)
+
+
+# Badge / business-card photo → same structured lead. A conference badge shows
+# name + company (+ sometimes title); a business card adds title/email. There is
+# no spoken context, so sentiment defaults to neutral and meeting_requested false
+# unless the rep added a note alongside the photo.
+BADGE_SYSTEM = (
+    "You are a sales assistant for Grain Finance, a fintech selling embedded "
+    "FX hedging to platforms with cross-border volume (PSPs, travel "
+    "marketplaces, cross-border payment companies). A sales rep at a "
+    "conference photographed someone's BADGE or BUSINESS CARD. Read the image "
+    "and extract a structured lead.\n\n"
+    "Reply with ONLY a JSON object with these keys:\n"
+    "  name           — full name as printed (string OR null)\n"
+    "  company        — company/organisation as printed (string OR null)\n"
+    "  title          — job title if printed (string OR null)\n"
+    "  email          — email if printed on a card (string OR null)\n"
+    "  vertical       — one of: fintech_other / payments / travel / saas / "
+    "treasury / crypto / unknown (infer from the company if you can)\n"
+    "  what_discussed — null (a photo carries no conversation)\n"
+    "  soft_signals   — [] (none from a photo alone)\n"
+    "  sentiment      — 3 (neutral — no spoken signal)\n"
+    "  meeting_requested — false\n"
+    "  linkedin       — null unless a LinkedIn handle/QR is clearly readable\n"
+    "  transcript     — null\n"
+    "  ocr_confidence — your confidence the name+company were read correctly, 0..1\n"
+    "If the image is NOT a badge/card or is unreadable, set name and company to "
+    "null and ocr_confidence to 0. Never invent a name."
 )
 
 
@@ -184,6 +214,94 @@ def text_to_lead(text: str) -> dict:
         )},
     ]
     return chat_json(messages, temperature=0.0, max_tokens=1024)
+
+
+# Image extensions OpenRouter/Gemini accept as inline data URIs.
+_IMAGE_MIME = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "webp": "image/webp", "gif": "image/gif", "heic": "image/heic",
+}
+
+
+def image_to_lead(image_path: Path) -> dict:
+    """Badge / business-card photo → structured lead via Gemini vision."""
+    p = Path(image_path)
+    if not p.exists():
+        raise LLMError(f"image file not found: {p}")
+    raw = p.read_bytes()
+    if not raw:
+        raise LLMError("image file is empty")
+    suffix = p.suffix.lstrip(".").lower()
+    mime = _IMAGE_MIME.get(suffix, "image/jpeg")
+    b64 = base64.b64encode(raw).decode("ascii")
+    data_uri = f"data:{mime};base64,{b64}"
+    messages = [
+        {"role": "system", "content": BADGE_SYSTEM},
+        {"role": "user", "content": [
+            {"type": "text", "text": "Conference badge / business card photo:"},
+            {"type": "image_url", "image_url": {"url": data_uri}},
+        ]},
+    ]
+    return chat_json(
+        messages,
+        model=config.OPENROUTER_AUDIO_MODEL,  # the multimodal Gemini model
+        temperature=0.0,
+        max_tokens=700,
+    )
+
+
+def linkedin_url_to_lead(url: str) -> dict:
+    """A bare LinkedIn URL → best-effort structured lead.
+
+    The URL itself is the highest-value field (entity resolution matches on
+    linkedin), so we always return it. When a key is available we attempt one
+    grounded lookup to fill name/title/company; on any failure we fall back to
+    a name guessed from the URL slug. Never invents employer/title.
+    """
+    lead: dict = {
+        "name": _name_from_linkedin_slug(url), "company": None, "title": None,
+        "vertical": None, "what_discussed": None, "soft_signals": [],
+        "sentiment": 3, "meeting_requested": False, "linkedin": url.strip(),
+        "transcript": None,
+    }
+    if not config.OPENROUTER_API_KEY:
+        return lead
+    try:
+        text, _ = search_grounded(
+            f"Identify the person at this LinkedIn profile: {url}. "
+            "Reply with ONLY JSON: "
+            '{"name": "...", "title": "...", "company": "..."}. '
+            "Use null for anything you cannot determine — do not guess.",
+            system="You resolve a LinkedIn URL to the person's current name, "
+                   "title, and employer. Be accurate; null over guess.",
+        )
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            data = json.loads(m.group(0))
+            for k in ("name", "title", "company"):
+                v = data.get(k)
+                if isinstance(v, str) and v.strip() and v.strip().lower() != "null":
+                    lead[k] = v.strip()
+    except (LLMError, json.JSONDecodeError, ValueError) as exc:
+        log.info("LinkedIn enrichment fell back to slug for %s: %s", url, exc)
+    return lead
+
+
+def _name_from_linkedin_slug(url: str) -> Optional[str]:
+    """Derive a rough display name from a /in/<slug> path. 'jane-doe-cfo' →
+    'Jane Doe'. Drops trailing role/hash tokens and numeric IDs."""
+    m = re.search(r"/in/([^/?#]+)", url or "", re.IGNORECASE)
+    if not m:
+        return None
+    slug = m.group(1)
+    parts = [pt for pt in slug.split("-") if pt and not pt.isdigit()]
+    # LinkedIn slugs often append role/company words after the name; the name is
+    # usually the first 2 tokens. Keep up to 3 alpha tokens, title-cased.
+    name_parts = []
+    for pt in parts[:3]:
+        if pt.isalpha() and len(pt) <= 20:
+            name_parts.append(pt.capitalize())
+    return " ".join(name_parts[:2]) if name_parts else None
 
 
 # ---------------------------------------------------------------------------

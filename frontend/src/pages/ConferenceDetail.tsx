@@ -89,6 +89,8 @@ export function ConferenceDetailPage() {
 
       {id && <Coverage conferenceId={id} conferenceName={c.name} />}
 
+      {id && <PostEventFollowups conferenceId={id} conferenceName={c.name} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-1 space-y-4">
           <section className="card p-4">
@@ -438,5 +440,117 @@ function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void
         </div>
       </details>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Post-event follow-ups — draft for everyone met here (event + conversation
+// grounded), edit in place, then push the batch to HubSpot. Draft-and-review:
+// nothing is sent automatically.
+// ---------------------------------------------------------------------------
+interface Draft {
+  contact_id: string; encounter_id: string; name: string;
+  company?: string; title?: string; subject: string; body: string;
+  event_name?: string; recommended: boolean; is_repeat: boolean;
+  arc?: string | null;
+}
+
+function PostEventFollowups({ conferenceId, conferenceName }: { conferenceId: string; conferenceName: string }) {
+  const { push: toast } = useToast();
+  const [drafts, setDrafts] = useState<Draft[] | null>(null);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+
+  const draftAll = useMutation({
+    mutationFn: () => api.post<{ drafts: Draft[]; count: number; recommended_count: number }>(
+      `/api/followups/event/${conferenceId}`),
+    onSuccess: (d) => {
+      setDrafts(d.drafts);
+      setEdits({});
+      toast("success", `Drafted ${d.count} follow-up${d.count === 1 ? "" : "s"}`);
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const saveEdit = useMutation({
+    mutationFn: (d: Draft) =>
+      api.put("/api/followups/draft", { encounter_id: d.encounter_id, body: edits[d.encounter_id] ?? d.body }),
+    onSuccess: () => toast("success", "Draft saved"),
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const pushAll = useMutation({
+    mutationFn: () => api.post<{ pushed: number; skipped: number; failed: number }>(
+      `/api/hubspot/push-event/${conferenceId}`),
+    onSuccess: (d) =>
+      toast("success", `HubSpot: ${d.pushed} pushed, ${d.skipped} skipped (no email), ${d.failed} failed`),
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  return (
+    <section className="card p-4 sm:p-5 mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <h2 className="text-base font-semibold">After the event — follow-ups</h2>
+          <p className="text-xs text-ink-500 mt-0.5 max-w-[64ch]">
+            Draft a follow-up for everyone met at{" "}
+            <span className="text-ink-700 font-medium">{conferenceName}</span> — each
+            one references the event and what was actually discussed. Edit, then
+            push the batch to HubSpot. Nothing sends automatically.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button className="btn-primary" disabled={draftAll.isPending}
+                  onClick={() => draftAll.mutate()}>
+            {draftAll.isPending ? "Drafting…" : "✍️ Draft follow-ups"}
+          </button>
+          {drafts && drafts.length > 0 && (
+            <button className="btn-secondary" disabled={pushAll.isPending}
+                    onClick={() => pushAll.mutate()}>
+              {pushAll.isPending ? "Syncing…" : "⇪ Push all to HubSpot"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {drafts && drafts.length === 0 && (
+        <div className="text-sm text-ink-500">No captured contacts at this event yet.</div>
+      )}
+
+      {drafts && drafts.length > 0 && (
+        <div className="space-y-3">
+          {drafts.map((d) => (
+            <div key={d.encounter_id} className="rounded-md border border-ink-200 p-3">
+              <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                <span className="text-sm font-semibold">{d.name}</span>
+                {d.company && <span className="text-xs text-ink-500">· {d.company}</span>}
+                {!d.recommended && (
+                  <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 rounded bg-ink-100 text-ink-600">
+                    low priority{d.arc ? ` · ${d.arc}` : ""}
+                  </span>
+                )}
+                {d.is_repeat && (
+                  <span className="text-[0.6rem] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                    repeat contact
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-ink-500 mb-1">Subject: {d.subject}</div>
+              <textarea
+                className="input w-full h-28 resize-none text-sm"
+                value={edits[d.encounter_id] ?? d.body}
+                onChange={(e) => setEdits((p) => ({ ...p, [d.encounter_id]: e.target.value }))}
+              />
+              <div className="flex justify-end mt-2">
+                <button className="btn-ghost h-8 text-xs"
+                        disabled={saveEdit.isPending}
+                        onClick={() => saveEdit.mutate(d)}>
+                  Save edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
