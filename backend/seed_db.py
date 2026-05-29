@@ -512,6 +512,10 @@ def main() -> int:
     from grain.brain.spaces import seed_brain_spaces  # local import
     brain_seed = seed_brain_spaces()
     print(f"Seeded brain spaces: {brain_seed['written']}")
+    # L1 hierarchical memory: one judged rollup PER ENTITY (event/account/
+    # segment), then L2 space summaries derived from those rollups (no top-50 cap).
+    print(f"Built L1 rollups: {brain_seed['rollup_build']}; "
+          f"L2 rewired from rollups: {brain_seed['l2_rewire']}")
     counts = db.counts()
     print(f"DB now contains: {counts}")
     return 0

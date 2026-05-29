@@ -317,6 +317,11 @@ def resummarize(space: str) -> dict:
     if not summary_text:
         summary_text = _deterministic_summary(space, items)
 
+    return _persist_space_summary(space, summary_text, item_count)
+
+
+def _persist_space_summary(space: str, summary_text: str, item_count: int) -> dict:
+    """Write ONE rolling summary for a space (the L2 read-surface)."""
     now = db.now_iso()
     conn = db.get_conn()
     try:
@@ -325,12 +330,179 @@ def resummarize(space: str) -> dict:
             "VALUES (?,?,?,?) ON CONFLICT(space) DO UPDATE SET "
             "summary = excluded.summary, item_count = excluded.item_count, "
             "updated_at = excluded.updated_at",
-            (space, summary_text, item_count, now),
+            (space, summary_text, int(item_count), now),
         )
     finally:
         conn.close()
     return {"space": space, "summary": summary_text,
-            "item_count": item_count, "updated_at": now}
+            "item_count": int(item_count), "updated_at": now}
+
+
+# ---------------------------------------------------------------------------
+# L2 REWIRE — the space summaries are JUDGMENTS OVER ALL the L1 rollups, NOT a
+# salience-truncated top-50 pile. The owner's critique was that top-50 by
+# salience is a dumb cutoff that drops dots. Now:
+#   - relationship ← rolls up EVERY account rollup (one judged line per account,
+#                    compressed into one space summary). No account is dropped.
+#   - events       ← rolls up EVERY event rollup (one judged line per event).
+#   - gaps         ← rolls up EVERY segment rollup (the coverage-gap verdicts).
+#   - icp          ← rolls up the segment rollups against the ICP target verticals.
+# Each summary is a judgment over the FULL set of entities (we may LLM-compress
+# the final prose, but it summarises the JUDGED rollups, not a truncated subset).
+# playbook stays in brain_memory as-is (genuinely incremental learning items).
+# ---------------------------------------------------------------------------
+_ROLLUP_SPACE_SYSTEM = (
+    "You compress a Grain Finance sales-intelligence memory space. You receive "
+    "JUDGED middle-management rollups (one per entity: events, accounts, or "
+    "segments) - already summarised from real captured data, NOT raw items. "
+    "Produce ONE rolling summary of 120-220 words that keeps the judgment: which "
+    "entities matter most (by priority), the relationship/coverage state, and "
+    "what the team should do next. Ground every claim in the rollups - do not "
+    "invent. Reply with ONLY JSON {\"summary\": \"...\"}."
+)
+
+
+def _llm_compress_rollups(space: str, rollups: list[dict]) -> Optional[str]:
+    """OPTIONALLY LLM-compress the final space summary over the JUDGED rollups
+    (not a salience-truncated subset). Returns None when no key (hermetic)."""
+    if not (llm.config.OPENROUTER_API_KEY and rollups):
+        return None
+    compact = [{"title": r.get("title"), "priority": r.get("priority"),
+                "summary": r.get("summary"), "features": r.get("features")}
+               for r in rollups[:60]]
+    try:
+        data = llm.chat_json(
+            [{"role": "system", "content": _ROLLUP_SPACE_SYSTEM},
+             {"role": "user", "content": json.dumps(
+                 {"space": space, "rollups": compact}, ensure_ascii=False)}],
+            temperature=0.2, max_tokens=500,
+        )
+        cand = (data.get("summary") or "").strip()
+        return cand or None
+    except llm.LLMError as exc:
+        log.info("LLM rollup-compress(%s) fell back to deterministic: %s",
+                 space, exc)
+        return None
+
+
+def _summarize_relationship_from_rollups(rollups: list[dict]) -> str:
+    if not rollups:
+        return "[relationship] no accounts rolled up yet."
+    n = len(rollups)
+    warming = [r for r in rollups if (r["features"] or {}).get("has_warming")]
+    tire = [r for r in rollups if (r["features"] or {}).get("has_tire_kicker")
+            and not (r["features"] or {}).get("has_warming")]
+    top = rollups[:8]  # highest-priority for the named highlights ONLY
+    top_str = "; ".join(
+        f"{r['title']} ({(r['features'] or {}).get('account_arc','?')}, "
+        f"{(r['features'] or {}).get('n_encounters',0)} enc / "
+        f"{(r['features'] or {}).get('events_spanned',0)} events)"
+        for r in top
+    )
+    return (
+        f"[relationship] {n} account(s) tracked (judged from L1 rollups, none "
+        f"dropped). {len(warming)} warming, {len(tire)} tire-kicker-only. "
+        f"Top by priority: {top_str}"
+        + (f" (+{n - len(top)} more accounts rolled up)." if n > len(top) else ".")
+    )
+
+
+def _summarize_events_from_rollups(rollups: list[dict]) -> str:
+    if not rollups:
+        return "[events] no events rolled up yet."
+    n = len(rollups)
+    worked = [r for r in rollups if (r["features"] or {}).get("n_encounters", 0) > 0]
+    worth_return = [r for r in rollups
+                    if (r["features"] or {}).get("worth_returning_verdict")
+                    in ("worth_returning", "worth_attending")]
+    from collections import Counter
+    vert_counts = Counter((r["features"] or {}).get("vertical") or "unknown"
+                          for r in rollups)
+    top = rollups[:6]
+    top_str = "; ".join(
+        f"{r['title']} [{(r['features'] or {}).get('worth_returning_verdict','?')}]"
+        for r in top
+    )
+    return (
+        f"[events] {n} event(s) rolled up (judged, none dropped); {len(worked)} "
+        f"worked with encounters, {len(worth_return)} judged worth attending/"
+        f"returning. By vertical: {dict(vert_counts)}. Top by priority: {top_str}"
+        + (f" (+{n - len(top)} more)." if n > len(top) else ".")
+    )
+
+
+def _summarize_gaps_from_rollups(seg_rollups: list[dict]) -> str:
+    if not seg_rollups:
+        return "[gaps] no segments rolled up yet."
+    gaps = [r for r in seg_rollups if (r["features"] or {}).get("coverage_gap")]
+    gap_str = "; ".join(
+        f"{r['title'].replace('Segment: ','')} "
+        f"(A={(r['features'] or {}).get('tier_mix',{}).get('A',0)}, "
+        f"{(r['features'] or {}).get('n_accounts',0)} accounts)"
+        for r in gaps
+    ) or "(none - coverage adequate across segments)"
+    return (
+        f"[gaps] {len(seg_rollups)} segment(s) judged; {len(gaps)} flagged as "
+        f"coverage gaps (go discover here): {gap_str}."
+    )
+
+
+def _summarize_icp_from_rollups(seg_rollups: list[dict]) -> str:
+    """ICP space rolled up from the segment rollups against the ICP targets."""
+    from ..icp import IcpConfig
+    icp = IcpConfig.default()
+    targets = icp.company_level["verticals"]
+    by_seg = {(r["features"] or {}).get("segment"): r for r in seg_rollups}
+    covered = [v for v in targets if v in by_seg]
+    uncovered = [v for v in targets if v not in by_seg]
+    buyers = ", ".join(icp.person_level["target_titles"][:5])
+    comps = ", ".join(icp.competitors[:6])
+    return (
+        f"[icp] Grain targets {len(targets)} verticals; {len(covered)} have "
+        f"event coverage, {len(uncovered)} do not "
+        f"({', '.join(uncovered) or 'all covered'}). Primary buyers: {buyers}. "
+        f"Competitors (auto-rejected): {comps}."
+    )
+
+
+def rebuild_space_summaries_from_rollups(use_llm: bool = True) -> dict:
+    """L2 rewire: recompute the events / relationship / gaps / icp space
+    summaries by ROLLING UP the L1 rollups (one judged line per entity →
+    compressed), NOT from the top-50 brain_memory pile.
+
+    Every event/account/segment has an L1 rollup, so the space summary is a
+    judgment over ALL of them — nothing is dropped. We may LLM-compress the
+    final prose, but it summarises the JUDGED rollups, not a truncated subset.
+    Hermetic: with no key the deterministic summary stands.
+
+    playbook is NOT touched here (it stays its own incremental brain_memory
+    space — genuinely additive learning items).
+    """
+    from . import rollups as _rollups
+    acct = _rollups.list_rollups("account", limit=10_000, sort="priority")
+    evt = _rollups.list_rollups("event", limit=10_000, sort="priority")
+    seg = _rollups.list_rollups("segment", limit=10_000, sort="priority")
+
+    out: dict[str, dict] = {}
+
+    rel_text = (use_llm and _llm_compress_rollups("relationship", acct)) \
+        or _summarize_relationship_from_rollups(acct)
+    out["relationship"] = _persist_space_summary("relationship", rel_text, len(acct))
+
+    ev_text = (use_llm and _llm_compress_rollups("events", evt)) \
+        or _summarize_events_from_rollups(evt)
+    out["events"] = _persist_space_summary("events", ev_text, len(evt))
+
+    # gaps + icp derive from the segment rollups (deterministic — they are
+    # already compact verdicts; no LLM needed).
+    out["gaps"] = _persist_space_summary(
+        "gaps", _summarize_gaps_from_rollups(seg), len(seg))
+    out["icp"] = _persist_space_summary(
+        "icp", _summarize_icp_from_rollups(seg), len(seg))
+
+    return {"rollup_counts": {"account": len(acct), "event": len(evt),
+                              "segment": len(seg)},
+            "summaries": out}
 
 
 # ---------------------------------------------------------------------------
@@ -731,9 +903,14 @@ def sync_relationship_space_from_db() -> dict:
         else:
             ingested += 1
 
-    # Keep the rolling summaries fresh after a bulk rebuild.
-    resummarize("relationship")
+    # Keep the playbook (incremental) summary fresh after a bulk rebuild.
     resummarize("playbook")
+    # L1 + L2: rebuild the judged rollups from the (now-current) dots and derive
+    # the relationship/events/gaps/icp space summaries from them — so the
+    # relationship summary is a judgment over ALL accounts, not a top-50 pile.
+    from . import rollups as _rollups
+    _rollups.rebuild_all_rollups()
+    rebuild_space_summaries_from_rollups()
     return {"contacts_seen": len(rows), "ingested": ingested,
             "rejected": rejected}
 
@@ -870,6 +1047,17 @@ def seed_brain_spaces() -> dict:
     # On a bare DB with no contacts yet this just ensures a summary row exists.
     rel_sync = sync_relationship_space_from_db()
 
+    # --- L1 rollups + L2 rewire ------------------------------------------
+    # Build ONE judged rollup per ENTITY (event / account / segment) from the L0
+    # dots, then recompute the events/relationship/gaps/icp space summaries as a
+    # JUDGMENT OVER ALL of those rollups (not a salience-truncated top-50 pile).
+    # Deterministic + fast (no per-entity LLM); idempotent (UNIQUE upsert).
+    from . import rollups as _rollups
+    rollup_build = _rollups.rebuild_all_rollups()
+    l2 = rebuild_space_summaries_from_rollups()
+
     return {"written": written,
             "relationship_sync": rel_sync,
+            "rollup_build": rollup_build,
+            "l2_rewire": l2["rollup_counts"],
             "spaces": {s: get_summary(s) for s in SPACES}}

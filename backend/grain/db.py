@@ -231,6 +231,31 @@ CREATE TABLE IF NOT EXISTS brain_space_summary (
     item_count      INTEGER,
     updated_at      TEXT NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Grain Brain L1 — MIDDLE-MANAGEMENT rollups (hierarchical memory tier).
+-- ONE judged summary per ENTITY (event / account / segment), NOT a global
+-- top-N cap. The number of rollups is bounded by the number of entities, never
+-- by a magic 50 — so NOTHING is dropped: every entity that has dots gets a
+-- rollup. features_json holds the structured "dots connected" (counts, arc mix,
+-- hit-rate, finance%, verdict); `summary` is the judged prose (deterministic
+-- always, optionally LLM-refined on demand); `priority` is for ORDERING the
+-- rollups (never for dropping them). L2 (the space summaries) rolls these up.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS brain_rollup (
+    id              TEXT PRIMARY KEY,
+    scope_type      TEXT NOT NULL,   -- 'event' | 'account' | 'segment'
+    scope_id        TEXT NOT NULL,   -- conference_id / company key / segment key
+    title           TEXT,
+    summary         TEXT,            -- judged rollup prose (deterministic; LLM-refined optional)
+    features_json   TEXT,            -- structured signals (the dots connected)
+    priority        REAL,            -- judged priority for ORDERING (never dropping)
+    source_count    INTEGER,         -- how many L0 dots fed this rollup
+    updated_at      TEXT NOT NULL,
+    UNIQUE(scope_type, scope_id)
+);
+CREATE INDEX IF NOT EXISTS idx_brain_rollup_scope ON brain_rollup(scope_type);
+CREATE INDEX IF NOT EXISTS idx_brain_rollup_priority ON brain_rollup(scope_type, priority DESC);
 """
 
 

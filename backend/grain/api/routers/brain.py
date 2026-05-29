@@ -20,9 +20,62 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ... import db, scoring
-from ...brain import graphs, spaces
+from ...brain import graphs, rollups, spaces
 
 router = APIRouter(prefix="/api/brain", tags=["brain"])
+
+
+# ---------------------------------------------------------------------------
+# L1 — middle-management rollups (hierarchical memory tier).
+# ONE judged summary per ENTITY (event / account / segment). Bounded by the
+# number of entities, never by a magic 50. `limit` here is PAGINATION of the
+# returned list, NOT a cap on how many rollups exist.
+# ---------------------------------------------------------------------------
+@router.get("/rollups")
+def list_rollups(scope: Optional[str] = None, limit: int = 200,
+                 sort: str = "priority") -> dict:
+    """List L1 rollups (title, summary, features, priority, source_count).
+
+    `scope` ∈ {event, account, segment} (omit for all). `sort` ∈ {priority,
+    recent}. Ordered by judged priority by default — every entity has a rollup,
+    so this is judgment-ordered, not a salience cutoff.
+    """
+    if scope is not None and scope not in rollups.SCOPE_TYPES:
+        raise HTTPException(
+            404, f"unknown scope '{scope}'; valid: {rollups.SCOPE_TYPES}")
+    items = rollups.list_rollups(scope, limit=limit, sort=sort)
+    return {
+        "scope": scope,
+        "sort": sort,
+        "count": rollups.count_rollups(scope),  # TOTAL that exist (not page size)
+        "returned": len(items),
+        "rollups": items,
+    }
+
+
+@router.get("/rollup/{scope_type}/{scope_id}")
+def get_rollup(scope_type: str, scope_id: str, refine: bool = False) -> dict:
+    """One rollup. Pass ?refine=true to LLM-refine + cache its prose on demand
+    (no-op without an API key — the deterministic summary stands)."""
+    if scope_type not in rollups.SCOPE_TYPES:
+        raise HTTPException(
+            404, f"unknown scope_type '{scope_type}'; valid: {rollups.SCOPE_TYPES}")
+    roll = (rollups.refine_rollup_summary(scope_type, scope_id) if refine
+            else rollups.get_rollup(scope_type, scope_id))
+    if roll is None:
+        raise HTTPException(404, f"no rollup for {scope_type}/{scope_id}")
+    return roll
+
+
+@router.post("/rollups/rebuild")
+def rebuild_rollups() -> dict:
+    """Recompute EVERY L1 rollup from the L0 dots (idempotent), then rederive the
+    L2 space summaries from those rollups. Bounded by entity count, no top-50 cap.
+    """
+    build = rollups.rebuild_all_rollups()
+    l2 = spaces.rebuild_space_summaries_from_rollups()
+    return {"status": "rebuilt", "rollup_build": build,
+            "l2_rewire": l2["rollup_counts"]}
 
 
 # ---------------------------------------------------------------------------

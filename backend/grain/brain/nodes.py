@@ -806,14 +806,21 @@ def query_node(state: BrainState) -> BrainState:
     question = state.get("input_text") or ""
     all_spaces = spaces.list_spaces()
     context = {s["name"]: s["summary"] for s in all_spaces}
-    answer = _deterministic_answer(question, all_spaces)
+    # Read the relevant L1 rollups so the answer can CONNECT DOTS across entities
+    # (specific accounts/events) and cite them — not just the 5 space summaries.
+    rollup_lines = _relevant_rollup_lines(question)
+    answer = _deterministic_answer(question, all_spaces, rollup_lines)
     if llm.config.OPENROUTER_API_KEY:
         try:
+            rollup_block = ("\n\nRelevant entity rollups (L1):\n"
+                            + "\n".join(f"- {ln}" for ln in rollup_lines)
+                            if rollup_lines else "")
             data = llm.chat_json(
                 [{"role": "system", "content": _QUERY_SYSTEM},
                  {"role": "user", "content":
                   f"Question: {question}\n\nMemory spaces:\n"
-                  + "\n".join(f"- {k}: {v}" for k, v in context.items())}],
+                  + "\n".join(f"- {k}: {v}" for k, v in context.items())
+                  + rollup_block}],
                 temperature=0.2, max_tokens=400,
             )
             cand = (data.get("answer") or "").strip()
@@ -822,14 +829,40 @@ def query_node(state: BrainState) -> BrainState:
         except llm.LLMError as exc:
             log.info("query LLM fell back to deterministic: %s", exc)
     return {
-        "result": {"answer": answer, "spaces": all_spaces, "question": question},
+        "result": {"answer": answer, "spaces": all_spaces, "question": question,
+                   "rollups": rollup_lines},
         "trace": _push(state, "query"),
     }
 
 
-def _deterministic_answer(question: str, all_spaces: list[dict]) -> str:
-    """Key-free answer: surface the most relevant space summary(ies)."""
+def _relevant_rollup_lines(question: str, limit: int = 8) -> list[str]:
+    """Pull the most relevant L1 rollups for the question so the query can cite
+    specific entities (accounts/events/segments) — the dots connected by L1.
+
+    Chooses the scope by keyword; defaults to the top-priority accounts (the
+    relationship view is the most common 'who/what do we know' question)."""
+    from . import rollups
     q = (question or "").lower()
+    if any(k in q for k in ("event", "conference", "attend", "booth")):
+        scope = "event"
+    elif any(k in q for k in ("segment", "vertical", "gap", "coverage")):
+        scope = "segment"
+    else:
+        scope = "account"
+    out: list[str] = []
+    for r in rollups.list_rollups(scope, limit=limit, sort="priority"):
+        out.append(f"{r.get('title')}: {r.get('summary')}")
+    return out
+
+
+def _deterministic_answer(question: str, all_spaces: list[dict],
+                          rollup_lines: list[str] | None = None) -> str:
+    """Key-free answer: surface the most relevant space summary(ies), then cite
+    the top L1 rollups so the answer connects dots to specific entities."""
+    q = (question or "").lower()
+    rollup_tail = ""
+    if rollup_lines:
+        rollup_tail = " Specifically: " + " | ".join(rollup_lines[:4])
     keyword_space = {
         "icp": "icp", "ideal customer": "icp", "buyer": "icp",
         "competitor": "icp", "vertical": "icp",
@@ -847,8 +880,9 @@ def _deterministic_answer(question: str, all_spaces: list[dict]) -> str:
     by_name = {s["name"]: s for s in all_spaces}
     if target and by_name.get(target, {}).get("summary"):
         s = by_name[target]
-        return f"[{s['name']}] {s['summary']}"
+        return f"[{s['name']}] {s['summary']}{rollup_tail}"
     # No keyword hit → return the non-empty summaries joined.
     parts = [f"[{s['name']}] {s['summary']}" for s in all_spaces
              if s.get("summary") and s.get("item_count")]
-    return " ".join(parts) if parts else "The brain has no memory yet."
+    base = " ".join(parts) if parts else "The brain has no memory yet."
+    return base + rollup_tail

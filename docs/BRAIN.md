@@ -171,6 +171,42 @@ present, and a bounded deterministic top-N join otherwise. Either way the
 summary is bounded by construction — *that*, plus pruning, is what stops the
 brain overflowing.
 
+### Hierarchical memory (dots → middle-management rollups → brain)
+
+The flat-space model above had one weakness: bounding a space by a **top-50
+salience cap** is a blunt cutoff with no judgment — it *drops dots*. The
+hierarchy fixes that. The bound becomes the **number of real entities**, not a
+magic number, and **nothing is dropped**.
+
+- **L0 — dots (never dropped).** The relational tables *are* the dots and edges:
+  `contacts`/`companies`/`conferences`/`reps` (entities) and
+  `encounters`/`coverage`/resolution-links/clusters (edges). Full recall lives
+  here.
+- **L1 — middle-management rollups (`brain/rollups.py`, table `brain_rollup`).**
+  **One judged summary per entity** — `scope_type ∈ {event, account, segment}`,
+  `UNIQUE(scope_type, scope_id)`. A *per-event* manager rolls up everyone met at
+  that event (arc mix, buying-committee hit, measured finance %, worth-returning
+  verdict); a *per-account* manager rolls up every encounter for a company across
+  every event (account arc, events spanned, warming/tire-kicker); a *per-segment*
+  manager aggregates a vertical/region. Each carries structured `features_json`
+  (the connected dots) + a judged `summary` + a `priority` used for **ordering,
+  never dropping**. Rebuild is deterministic and fast (~480 entities in ~3s, no
+  LLM in the bulk loop); an optional `refine_rollup_summary` upgrades one
+  rollup's prose on demand and caches it. Idempotent via the UNIQUE upsert;
+  recomputed per-entity on each capture (`recompute_for_contact` in the cascade)
+  and fully on seed.
+- **L2 — the brain.** The `events`/`relationship`/`gaps`/`icp` space summaries
+  are now a **judgment over all the L1 rollups** (one judged line per entity,
+  then compressed) — *not* a salience-truncated top-50 pile. The query node also
+  reads the relevant L1 rollups, so it connects dots **across** entities and
+  cites them (e.g. "Booking.com/Adyen are warming → reach them at Money20/20 EU
+  and EuroFinance MEA"). `playbook` + the `feedback:*` learning items remain in
+  `brain_memory` (genuinely incremental).
+
+Scale property (verified): 300 distinct companies → **306 account rollups** (one
+each, not capped at 50), with all raw encounter dots retained in L0. The bound
+is reality, and aggregation is by judgment at every tier.
+
 ### The five spaces
 
 | Space | Holds | Seeded from | Fed by |

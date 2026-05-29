@@ -664,6 +664,15 @@ def run_cascade_in_background(contact_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         log.warning("brain ingest failed for %s: %s", contact_id, exc)
 
+    # L1 hierarchical memory: recompute the affected ACCOUNT + EVENT rollup(s)
+    # for this contact so the middle-management tier reflects the new dot. Best-
+    # effort — never breaks capture (the response was already sent).
+    try:
+        from grain.brain import rollups as _rollups
+        _rollups.recompute_for_contact(contact_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brain rollup recompute failed for %s: %s", contact_id, exc)
+
     return {"ok": True, "contact_id": contact_id,
             "arc": verdict_dict, "nudge": nudge_state}
 

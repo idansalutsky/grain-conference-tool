@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast, toastErrorMessage } from "@/components/Toast";
+import { ArcBadge } from "@/components/Badges";
 
 // ---------------------------------------------------------------------------
 // Grain Brain — a window into the LangGraph memory subsystem.
@@ -108,6 +109,37 @@ interface GraphSpec {
   edges: GraphEdge[];
   interrupts: string[];
   spaces: unknown[];
+}
+
+// ----- rollups (L1) contract -----------------------------------------------
+
+type RollupScope = "account" | "event" | "segment";
+
+interface ArcMix {
+  warming?: number;
+  flat?: number;
+  cooling?: number;
+  tire_kicker?: number;
+}
+
+interface Rollup {
+  id: string;
+  scope_type: string;
+  scope_id: string;
+  title: string;
+  summary: string;
+  features: Record<string, unknown>;
+  priority: number;
+  source_count: number;
+  updated_at: string;
+}
+
+interface RollupsResponse {
+  scope: string;
+  sort: string;
+  count: number; // TOTAL — nothing dropped
+  returned: number;
+  rollups: Rollup[];
 }
 
 // ----- presentation helpers ------------------------------------------------
@@ -330,6 +362,380 @@ function ItemRow({ item, hue }: { item: BrainItem; hue: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ===========================================================================
+// SECTION 1.5 — Middle-management rollups (L1)
+// ===========================================================================
+//
+// One judged summary per entity, sitting between the L0 dots (the tables —
+// every encounter/contact, never dropped) and the L2 brain spaces above.
+// The TOTAL count is shown explicitly so the no-cap property is legible.
+
+const ARC_HUE: Record<string, string> = {
+  warming: "158",
+  flat: "160",
+  cooling: "245",
+  tire_kicker: "62",
+};
+
+const SCOPE_META: Record<
+  RollupScope,
+  { label: string; hue: string; noun: string; tagline: string }
+> = {
+  account: {
+    label: "Accounts",
+    hue: "158",
+    noun: "account",
+    tagline: "one per company, nothing dropped",
+  },
+  event: {
+    label: "Events",
+    hue: "245",
+    noun: "event",
+    tagline: "one per conference, nothing dropped",
+  },
+  segment: {
+    label: "Segments",
+    hue: "300",
+    noun: "segment",
+    tagline: "one per vertical, nothing dropped",
+  },
+};
+
+const SCOPE_ORDER: RollupScope[] = ["account", "event", "segment"];
+
+function num(v: unknown): number | undefined {
+  return typeof v === "number" ? v : undefined;
+}
+function str(v: unknown): string | undefined {
+  return typeof v === "string" && v ? v : undefined;
+}
+
+/** A small chip; reuses the .stamp class + shared stampStyle tints. */
+function Chip({
+  hue,
+  muted,
+  title,
+  children,
+}: {
+  hue: string;
+  muted?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="stamp" style={stampStyle(hue, muted)} title={title}>
+      {children}
+    </span>
+  );
+}
+
+/** Render the arc mix as a row of arc-coloured count chips (only non-zero). */
+function ArcMixChips({ mix }: { mix: ArcMix }) {
+  const order: (keyof ArcMix)[] = ["warming", "flat", "cooling", "tire_kicker"];
+  const present = order.filter((k) => (mix[k] || 0) > 0);
+  if (present.length === 0) return null;
+  return (
+    <>
+      {present.map((k) => (
+        <Chip
+          key={k}
+          hue={ARC_HUE[k]}
+          muted={k === "flat"}
+          title={`${mix[k]} ${k.replace("_", "-")} read(s)`}
+        >
+          {mix[k]} {k.replace("_", "-")}
+        </Chip>
+      ))}
+    </>
+  );
+}
+
+/** Features → chips, dispatched by scope. The shape per scope is verified
+ *  against the live /api/brain/rollups contract. */
+function FeatureChips({ scope, f }: { scope: RollupScope; f: Record<string, unknown> }) {
+  if (scope === "account") {
+    const arc = str(f.account_arc);
+    const enc = num(f.n_encounters);
+    const events = num(f.events_spanned);
+    const contacts = num(f.n_contacts);
+    const mix = (f.arc_mix as ArcMix) || {};
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {arc && <ArcBadge kind={arc} />}
+        {contacts != null && (
+          <Chip hue="160" muted title="contacts known at this account">
+            {contacts} contact{contacts === 1 ? "" : "s"}
+          </Chip>
+        )}
+        {enc != null && (
+          <Chip hue="160" muted title="L0 dots rolled up — every encounter">
+            {enc} encounter{enc === 1 ? "" : "s"}
+          </Chip>
+        )}
+        {events != null && (
+          <Chip hue="245" muted title="distinct events this account appeared at">
+            {events} event{events === 1 ? "" : "s"} spanned
+          </Chip>
+        )}
+        <ArcMixChips mix={mix} />
+      </div>
+    );
+  }
+
+  if (scope === "event") {
+    const tier = str(f.tier);
+    const verdict = str(f.worth_returning_verdict);
+    const contacts = num(f.n_contacts_met);
+    const enc = num(f.n_encounters);
+    const fin = num(f.measured_finance_pct);
+    const committee = num(f.buying_committee_personas_hit);
+    const follow = num(f.follow_ups_drafted);
+    const mix = (f.arc_mix as ArcMix) || {};
+    const goodVerdict = verdict === "worth_returning";
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tier && (
+          <Chip hue={tier === "A" ? "164" : tier === "B" ? "245" : "62"} muted={tier === "C"}>
+            Tier {tier}
+          </Chip>
+        )}
+        {verdict && (
+          <Chip
+            hue={goodVerdict ? "164" : "62"}
+            title="The judged verdict — return next year, or not"
+          >
+            {verdict.replace(/_/g, " ")}
+          </Chip>
+        )}
+        {contacts != null && (
+          <Chip hue="160" muted title="contacts met at this event">
+            {contacts} met
+          </Chip>
+        )}
+        {enc != null && (
+          <Chip hue="160" muted title="L0 dots rolled up — every encounter">
+            {enc} encounter{enc === 1 ? "" : "s"}
+          </Chip>
+        )}
+        {committee != null && committee > 0 && (
+          <Chip hue="164" muted title="buying-committee (finance/treasury) contacts">
+            {committee} committee
+          </Chip>
+        )}
+        {fin != null && (
+          <Chip hue="164" muted title="measured finance/treasury share of the audience">
+            {fin.toFixed(0)}% finance
+          </Chip>
+        )}
+        {follow != null && (
+          <Chip hue="62" muted title="follow-ups drafted off the back of this event">
+            {follow} follow-up{follow === 1 ? "" : "s"}
+          </Chip>
+        )}
+        <ArcMixChips mix={mix} />
+      </div>
+    );
+  }
+
+  // segment
+  const nEvents = num(f.n_events);
+  const tierMix = (f.tier_mix as Record<string, number>) || {};
+  const regions = Array.isArray(f.regions) ? (f.regions as string[]) : [];
+  const nAccounts = num(f.n_accounts);
+  const gap = f.coverage_gap === true;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {nEvents != null && (
+        <Chip hue="300" muted title="events in this segment">
+          {nEvents} event{nEvents === 1 ? "" : "s"}
+        </Chip>
+      )}
+      {(["A", "B", "C"] as const).map((t) =>
+        (tierMix[t] || 0) > 0 ? (
+          <Chip
+            key={t}
+            hue={t === "A" ? "164" : t === "B" ? "245" : "62"}
+            muted={t === "C"}
+            title={`${tierMix[t]} Tier ${t} event(s)`}
+          >
+            {tierMix[t]}× {t}
+          </Chip>
+        ) : null,
+      )}
+      {nAccounts != null && (
+        <Chip hue="158" muted title="worked accounts in this segment">
+          {nAccounts} worked account{nAccounts === 1 ? "" : "s"}
+        </Chip>
+      )}
+      {regions.length > 0 && (
+        <Chip hue="160" muted title="regions this segment spans">
+          {regions.join(" · ")}
+        </Chip>
+      )}
+      <Chip
+        hue={gap ? "62" : "164"}
+        title={gap ? "A coverage hole to close" : "Coverage looks adequate"}
+      >
+        {gap ? "coverage gap" : "coverage ok"}
+      </Chip>
+    </div>
+  );
+}
+
+function RollupCard({ scope, rollup }: { scope: RollupScope; rollup: Rollup }) {
+  const meta = SCOPE_META[scope];
+  const [open, setOpen] = useState(false);
+  const [refine, setRefine] = useState(false);
+
+  // On-demand richer LLM prose, only when expanded + refine requested.
+  const refined = useQuery({
+    queryKey: ["brain-rollup", scope, rollup.scope_id, "refine"],
+    queryFn: () =>
+      api.get<Rollup>(`/api/brain/rollup/${rollup.scope_type}/${rollup.scope_id}`, {
+        query: { refine: true },
+      }),
+    enabled: open && refine,
+  });
+
+  const summary = refine && refined.data?.summary ? refined.data.summary : rollup.summary;
+
+  return (
+    <div
+      className={"card p-4 text-left " + (open ? "ring-2" : "")}
+      style={open ? { boxShadow: `0 0 0 2px oklch(0.86 0.05 ${meta.hue})` } : undefined}
+    >
+      <button
+        className="w-full text-left"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-ink-900 truncate">{rollup.title}</div>
+            <div className="text-xs text-ink-500 font-mono truncate">{rollup.scope_id}</div>
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <Chip hue={meta.hue} title="priority — how loudly this rollup asks for attention">
+              priority {rollup.priority.toFixed(2)}
+            </Chip>
+            <span className="text-xs text-ink-500" title="L0 dots behind this one judged summary">
+              {rollup.source_count} source{rollup.source_count === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+        <p className={"text-sm text-ink-700 " + (open ? "" : "line-clamp-2")}>{summary}</p>
+      </button>
+
+      <div className="mt-3">
+        <FeatureChips scope={scope} f={rollup.features} />
+      </div>
+
+      {open && (
+        <div className="mt-3 pt-3 border-t border-ink-100">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <span className="label">The judged summary</span>
+            <button
+              className="btn-ghost text-xs !px-2 !h-7"
+              disabled={refined.isFetching}
+              onClick={() => setRefine(true)}
+              title="Ask the LLM to rewrite this summary as richer prose"
+            >
+              {refined.isFetching ? "refining…" : refine ? "↻ refine again" : "✎ refine prose"}
+            </button>
+          </div>
+          {refined.error && (
+            <div className="text-tire text-xs mb-2">
+              Refine failed: {toastErrorMessage(refined.error)}
+            </div>
+          )}
+          <div className="text-xs text-ink-500 mb-2">
+            updated {relTime(refined.data?.updated_at || rollup.updated_at)}
+          </div>
+          <div className="label mb-1">Features behind the judgement</div>
+          <pre className="text-xs bg-ink-50 rounded-md p-2 overflow-x-auto text-ink-700 whitespace-pre-wrap">
+            {JSON.stringify(rollup.features, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RollupsSection() {
+  const [scope, setScope] = useState<RollupScope>("account");
+  const meta = SCOPE_META[scope];
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["brain-rollups", scope],
+    queryFn: () =>
+      api.get<RollupsResponse>("/api/brain/rollups", {
+        query: { scope, sort: "priority", limit: 60 },
+      }),
+  });
+
+  const rollups = data?.rollups || [];
+
+  return (
+    <section>
+      <div className="rule-label mb-2">Middle-management rollups (L1) — one judged summary per entity</div>
+      <p className="text-sm text-ink-500 mb-4 max-w-[72ch]">
+        Between the dots and the brain. Each rollup compresses every L0 dot for one
+        entity into a single judged read — an arc, a verdict, a coverage call — with
+        the raw counts kept as chips. Nothing is dropped: there is exactly one rollup
+        per entity, and the total below proves it.
+      </p>
+
+      {/* Scope toggle — Accounts / Events / Segments */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className="label mr-1">Scope</span>
+        {SCOPE_ORDER.map((s) => {
+          const m = SCOPE_META[s];
+          const active = scope === s;
+          return (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              className={
+                "px-2.5 h-7 rounded-md text-xs font-semibold transition-colors " +
+                (active ? "bg-ink-900 text-white" : "bg-ink-100 text-ink-500 hover:bg-ink-200")
+              }
+            >
+              {m.label}
+            </button>
+          );
+        })}
+        {data && (
+          <span className="sm:ml-auto text-xs text-ink-700">
+            <span className="font-display font-bold text-base text-ink-900 tabular-nums">
+              {data.count}
+            </span>{" "}
+            {meta.noun} rollup{data.count === 1 ? "" : "s"} — {meta.tagline}
+            {data.returned < data.count && (
+              <span className="text-ink-500"> · showing top {data.returned} by priority</span>
+            )}
+          </span>
+        )}
+      </div>
+
+      {isLoading && <div className="text-sm text-ink-500">Rolling up the dots…</div>}
+      {error && (
+        <div className="card p-4 text-tire text-sm">Error: {toastErrorMessage(error)}</div>
+      )}
+      {data && rollups.length === 0 && !isLoading && (
+        <div className="card p-6 text-center text-sm text-ink-500">
+          No {meta.noun} rollups yet — run the brain to capture encounters first.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {rollups.map((r) => (
+          <RollupCard key={r.id} scope={scope} rollup={r} />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -895,9 +1301,40 @@ export function BrainPage() {
           it, decides what kind of thing it is, runs it through a graph of nodes
           — and pauses for a human before it acts on anything it discovers.
         </p>
+
+        {/* The hierarchy, in one line — three tiers, bottom to top. */}
+        <div className="card mt-4 p-3 sm:p-4">
+          <div className="rule-label mb-2">The memory is three tiers</div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm">
+            <span className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="stamp shrink-0" style={stampStyle("160", true)}>L0 · dots</span>
+              <span className="text-ink-500 truncate">
+                every encounter &amp; contact — never dropped (the tables)
+              </span>
+            </span>
+            <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
+            <span className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="stamp shrink-0" style={stampStyle("164")}>L1 · rollups</span>
+              <span className="text-ink-500 truncate">
+                one judged summary per entity (below)
+              </span>
+            </span>
+            <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
+            <span className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="stamp shrink-0" style={stampStyle("245")}>L2 · brain</span>
+              <span className="text-ink-500 truncate">
+                cross-cutting spaces (above)
+              </span>
+            </span>
+          </div>
+        </div>
       </div>
 
+      {/* L2 — the brain's compressed cross-cutting memory. */}
       <SpacesSection />
+      {/* L1 — middle-management rollups, one per entity. */}
+      <RollupsSection />
+      {/* The loop + architecture, as-is. */}
       <RunSection lastTrace={lastTrace} onTrace={setLastTrace} />
       <GraphSection lastTrace={lastTrace} />
     </div>
