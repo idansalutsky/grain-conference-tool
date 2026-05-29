@@ -27,6 +27,19 @@ contribution to the total, and a one-sentence evidence string.
 Weights are sliders in the Settings UI. Sum to 1.0 by default (excluding
 `historical_yield`).
 
+### How `vertical_concentration` reads the event's vertical
+
+The factor keys off the conference's `vertical` field. Every seeded event has an
+explicit `vertical` (see `seed/PROVENANCE.md`), so this factor is grounded in a
+curated label, not a guess. The strong-wedge verticals — **travel, booking,
+marketplace, treasury, payments, psp, cross_border_payments** — score 1.0;
+other in-ICP verticals score 0.85; everything else falls back to an FX-theme
+scan. Classification is **name-first for the travel wedge**: a travel-industry
+event whose agenda also mentions "payments" (Phocuswright, WiT, World Travel
+Market) is scored as `travel`, not mis-tagged `payments`. Money20/20 stays
+`payments`; EuroFinance / AFP / Sibos / EBAday stay `treasury` — so the
+treasury-pure shows still out-rank Money20/20 on measured buyer density below.
+
 ## What this surfaces — examples from the seed data
 
 | Conference | Tier | Score | Top contributors |

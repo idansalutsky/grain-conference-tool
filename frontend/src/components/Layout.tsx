@@ -8,7 +8,7 @@ const TABS = [
   { to: "/conferences", label: "Events", match: ["/conferences", "/discovery"] },
   { to: "/planning", label: "Calendar", match: ["/planning"] },
   { to: "/capture", label: "Capture", match: ["/capture"] },
-  { to: "/contacts", label: "People", match: ["/contacts", "/nudges"] },
+  { to: "/contacts", label: "People", match: ["/contacts", "/nudges", "/companies"] },
   { to: "/team", label: "Admin", match: ["/team", "/settings"] },
 ];
 

@@ -16,10 +16,30 @@ def list_all(
     tier: Optional[str] = None,
     is_prospect: Optional[bool] = None,
     approved: Optional[bool] = True,
+    vertical: Optional[str] = None,
+    search: Optional[str] = None,
+    sort: str = "score",
     limit: int = 200,
 ) -> dict:
+    """List companies for the index page.
+
+    Query params (all optional):
+      tier=A|B|C            exact account_tier filter
+      is_prospect=true|false
+      approved=true|false   (defaults to approved-only)
+      vertical=fintech      exact, case-insensitive vertical filter
+      search=wise           case-insensitive substring on name / variants
+      sort=score|name|people|conferences   (default: score)
+      limit=200
+
+    Each item carries: id, name, vertical, account_tier, icp_score,
+    source_kind, domain, logo_url, why_grain_fit, is_prospect, approved,
+    people_count, conference_count, name_variants (+ all other company cols).
+    Returns {count, items}; items is [] when the table is empty.
+    """
     items = companies.list_companies(
-        tier=tier, is_prospect=is_prospect, approved=approved, limit=limit,
+        tier=tier, is_prospect=is_prospect, approved=approved,
+        vertical=vertical, search=search, sort=sort, limit=limit,
     )
     return {"count": len(items), "items": items}
 

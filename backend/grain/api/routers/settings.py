@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ... import db
+from ... import config, db
 from ...icp import IcpConfig
 from ...scoring import DEFAULT_WEIGHTS
 
@@ -76,6 +76,76 @@ def update_parameter(body: ParameterUpdate) -> dict:
         reason=body.reason, decided_by=body.decided_by,
     )
     return {"status": "updated", "key": body.key, "value": body.value, "before": before}
+
+
+# ---------------------------------------------------------------------------
+# Integrations — in-app API key configuration
+# ---------------------------------------------------------------------------
+# Request field name -> public config attribute. Field names match the masked
+# response keys (the part after "integrations." in the settings table key).
+_INTEGRATION_FIELDS = {
+    "openrouter_api_key": "OPENROUTER_API_KEY",
+    "perplexity_api_key": "PERPLEXITY_API_KEY",
+    "hubspot_token": "HUBSPOT_PRIVATE_APP_TOKEN",
+    "telegram_bot_token": "TELEGRAM_BOT_TOKEN",
+}
+
+
+@router.get("/integrations")
+def get_integrations() -> dict:
+    """Which integration keys are configured. Secrets are NEVER returned raw.
+
+    Response:
+      {"integrations": {
+         "<field>": {"configured": bool,
+                     "masked": "…1234" | null,
+                     "source": "in_app" | "env" | null},
+         ...}}
+    where <field> is one of openrouter_api_key, perplexity_api_key,
+    hubspot_token, telegram_bot_token.
+    """
+    return {"integrations": config.integration_status()}
+
+
+class IntegrationsUpdate(BaseModel):
+    openrouter_api_key: str | None = None
+    perplexity_api_key: str | None = None
+    hubspot_token: str | None = None
+    telegram_bot_token: str | None = None
+
+
+@router.put("/integrations")
+def update_integrations(body: IntegrationsUpdate) -> dict:
+    """Store any provided (non-empty) integration secrets in the settings table.
+
+    Only non-None, non-blank fields are written; omitted fields are left
+    untouched. Values are stored as-is in the settings table (plaintext,
+    matching how every other setting is stored in this single-tenant demo).
+    Saving an in-app key makes it take precedence over the env var at the next
+    access — the env fallback is preserved when no in-app key is set.
+
+    Returns the updated masked status (same shape as GET).
+    """
+    updated: list[str] = []
+    payload = body.model_dump()
+    for field, attr in _INTEGRATION_FIELDS.items():
+        val = payload.get(field)
+        if val is None:
+            continue
+        val = val.strip()
+        if not val:
+            continue
+        settings_key = config.INTEGRATION_SETTING_KEYS[attr]
+        db.set_setting(settings_key, val)
+        db.log_feedback(
+            decision_kind="parameter_update", target_kind="integration",
+            target_id=settings_key,
+            before={"configured": True}, after={"configured": True},
+            reason="integration key updated via settings UI", decided_by="ui",
+        )
+        updated.append(field)
+    return {"status": "updated", "updated": updated,
+            "integrations": config.integration_status()}
 
 
 def _icp_summary() -> dict:

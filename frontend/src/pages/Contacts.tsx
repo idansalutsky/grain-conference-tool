@@ -10,6 +10,7 @@ import { SubTabs } from "@/components/SubTabs";
 const ARCS = ["All", "warming", "flat", "cooling", "tire_kicker"];
 const PEOPLE_TABS = [
   { to: "/contacts", label: "Contacts" },
+  { to: "/companies", label: "Companies" },
   { to: "/nudges", label: "Follow-ups" },
 ];
 

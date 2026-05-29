@@ -47,20 +47,77 @@ def _seed_reps() -> None:
         conn.close()
 
 
-def _vertical_of_conference(name: str, themes: str) -> str:
-    """Heuristic — first vertical mention wins."""
-    h = (name + " " + (themes or "")).lower()
+def _vertical_of_conference(name: str, themes: str, explicit: str | None = None) -> str:
+    """Classify a conference into a Grain ICP vertical.
+
+    Priority order (highest first):
+      1. An explicit, non-empty ``vertical`` field on the conference object.
+         Anchors in conferences.json set this to lock the result verbatim.
+      2. NAME-based travel/booking/marketplace signal. A travel-industry event
+         (Phocuswright, Web in Travel, ITB, Skift, WTM…) whose *themes* also
+         mention "payments" must still classify as ``travel`` — so the event
+         NAME is matched with higher priority than the theme text for the
+         travel wedge, before the generic payments/treasury heuristic runs.
+      3. Theme+name heuristic for the remaining verticals (treasury, payments,
+         crypto, saas, …), evaluated in an order where the more specific /
+         higher-intent signals win.
+
+    The old bug: ``payments`` was checked before ``travel`` against the combined
+    name+themes string, so Phocuswright/WiT (whose themes mention payments) were
+    mis-tagged ``payments``. This reorders so the travel wedge wins.
+    """
+    # 1. Explicit override — trust the curated JSON.
+    if explicit and str(explicit).strip():
+        return str(explicit).strip()
+
+    nm = (name or "").lower()
+    th = (themes or "").lower()
+
+    # 2. Travel wedge — matched on the NAME first (the event's identity), so a
+    #    travel event whose agenda happens to mention payments stays travel.
+    travel_name_keys = (
+        "phocuswright", "web in travel", "wit (", "(wit", "itb",
+        "skift", "arival", "travel", "tourism", "hospitality",
+        "world travel market", "wtm", "future travel experience",
+    )
+    if any(k in nm for k in travel_name_keys):
+        # "booking" / "ota" inside a travel-named event are still the travel wedge.
+        return "travel"
+    booking_name_keys = ("booking", " ota", "online travel")
+    if any(k in nm for k in booking_name_keys):
+        return "booking"
+    if "marketplace" in nm:
+        return "marketplace"
+
+    # 2b. Payments-identity events by NAME — a payments-branded show whose agenda
+    #     also lists "treasury" as one of many tracks is still a payments event
+    #     (Money20/20, Visa Payments Forum, Seamless, MoneyLIVE…). Match the
+    #     payments identity on the NAME before the generic treasury-theme scan so
+    #     these don't get pulled to `treasury` by an incidental theme keyword.
+    payments_name_keys = ("money20", "money 20", "visa payments", "merchant payments",
+                          "seamless", "moneylive", "payments forum", "paytech")
+    if any(k in nm for k in payments_name_keys):
+        return "payments"
+
+    # 3. Remaining heuristic — name+themes combined, ordered by intent.
+    h = nm + " " + th
     for v, keys in [
-        ("treasury",  ["treasury"]),
+        # Travel/booking/marketplace by THEME (event not named for travel but
+        # the agenda is clearly travel-led).
+        ("travel",    ["travel tech", "travel technology", "tourism",
+                       "hospitality", "phocuswright"]),
+        ("booking",   ["online travel", "ota"]),
+        ("marketplace", ["marketplace", "marketplaces"]),
+        # Treasury — the highest-intent finance vertical for Grain.
+        ("treasury",  ["treasury", "corporate finance", "cash management"]),
+        ("cross_border_payments", ["cross-border payment", "cross border payment"]),
+        ("psp",       ["psp", "merchant payments", "acquiring"]),
         ("payments",  ["payment", "payments"]),
-        ("psp",       ["psp"]),
-        ("cross_border_payments", ["cross-border", "cross border"]),
-        ("travel",    ["travel", "tourism", "hospitality", "phocuswright", "itb"]),
-        ("booking",   ["booking", "ota"]),
-        ("marketplace", ["marketplace"]),
-        ("fintech_other", ["fintech", "money20", "finovate"]),
-        ("crypto",    ["crypto", "blockchain", "web3", "stablecoin"]),
-        ("saas",      ["saas"]),
+        ("crypto",    ["crypto", "blockchain", "web3", "stablecoin", "ethereum",
+                       "defi", "tokeniz"]),
+        ("saas",      ["saas", "product management"]),
+        ("fintech_other", ["fintech", "money20", "finovate", "banking",
+                           "financial services", "financial technology"]),
     ]:
         if any(k in h for k in keys):
             return v
@@ -83,7 +140,11 @@ def seed_conferences() -> int:
             ).fetchone()
             if exists:
                 continue
-            vertical = _vertical_of_conference(c.get("name", ""), c.get("themes", "") or "")
+            # Respect an explicit, authoritative vertical when the seed carries
+            # one (anchor events lock it); else fall back to the name/theme
+            # heuristic. The explicit value is honoured inside the helper.
+            vertical = _vertical_of_conference(
+                c.get("name", ""), c.get("themes", "") or "", c.get("vertical"))
             payload = {
                 "id": cid,
                 "name": c["name"],
@@ -184,11 +245,37 @@ def _norm_conf_name(name: str) -> str:
     return re.sub(r"\s+", " ", n).strip()
 
 
-def dedupe_conferences() -> int:
-    """Merge same-event-same-year duplicates from different sources.
+# Today's reference date for "is this edition upcoming?" decisions. A
+# 2026-planning tool should keep the next upcoming edition of a recurring
+# event and drop past-year copies of the same event.
+_TODAY_ISO = "2026-05-29"
 
-    Keeps the copy with the most populated fields (ties → higher score),
-    repoints people + encounters to the kept id, deletes the rest.
+
+def dedupe_conferences(today: str = _TODAY_ISO) -> int:
+    """Collapse duplicate editions of the same event down to one row.
+
+    Two cases, handled together because they're the same problem at different
+    granularity:
+
+      1. Same event, SAME year, scraped from different sources (e.g. the
+         curated Money20/20 row + the paytech.events calendar copy).
+      2. Same event, DIFFERENT years (e.g. AFP 2024 + AFP 2026,
+         Money20/20 USA 2025 + 2026). For a 2026-planning tool the older
+         past-year copies are noise.
+
+    Strategy: group every conference by its YEAR-STRIPPED normalised name.
+    Within a group, pick ONE winner:
+      - Prefer an UPCOMING edition (start_date >= today). Among upcoming
+        editions, the earliest upcoming one (the next time you can actually
+        attend), then the most complete.
+      - If NO edition is upcoming, keep the most recent past edition (latest
+        start_date), then the most complete — so a lone past anchor survives
+        rather than vanishing.
+    People + encounters are repointed to the winner; the losers are deleted.
+
+    The JSON seed is already cleaned of the known cross-year anchor dupes, so
+    in the normal path this removes 0. It stays as a safety net so a future
+    re-import of stale calendar data can't reintroduce duplicate editions.
     """
     from collections import defaultdict
     conn = db.get_conn()
@@ -196,21 +283,32 @@ def dedupe_conferences() -> int:
         rows = [dict(r) for r in conn.execute("SELECT * FROM conferences").fetchall()]
         groups: dict = defaultdict(list)
         for r in rows:
-            yr = (r.get("start_date") or "")[:4]
-            groups[(_norm_conf_name(r["name"]), yr)].append(r)
+            groups[_norm_conf_name(r["name"])].append(r)
+
+        def completeness(r) -> int:
+            return sum(
+                1 for c in ("estimated_attendance", "themes", "website",
+                            "cost_pass_usd", "city", "format", "agenda_summary",
+                            "audience_composition_json", "source_url")
+                if r.get(c) not in (None, "")
+            )
+
+        def sort_key(r):
+            sd = r.get("start_date") or ""
+            upcoming = sd >= today
+            if upcoming:
+                # earliest upcoming first → invert: smaller date ranks higher.
+                # We sort descending overall, so map to a tuple that makes the
+                # earliest upcoming the maximum.
+                return (1, -_date_ordinal(sd), completeness(r), r.get("score") or 0)
+            # past editions: most recent first
+            return (0, _date_ordinal(sd), completeness(r), r.get("score") or 0)
 
         removed = 0
-        for (_, _yr), items in groups.items():
+        for _, items in groups.items():
             if len(items) < 2:
                 continue
-            def completeness(r):
-                filled = sum(
-                    1 for c in ("estimated_attendance", "themes", "website",
-                                "cost_pass_usd", "city", "format")
-                    if r.get(c) not in (None, "")
-                )
-                return (filled, r.get("score") or 0)
-            items.sort(key=completeness, reverse=True)
+            items.sort(key=sort_key, reverse=True)
             keep = items[0]["id"]
             for dup in items[1:]:
                 conn.execute("UPDATE people SET conference_id = ? WHERE conference_id = ?",
@@ -222,6 +320,14 @@ def dedupe_conferences() -> int:
         return removed
     finally:
         conn.close()
+
+
+def _date_ordinal(iso: str) -> int:
+    """YYYY-MM-DD → comparable int (YYYYMMDD), 0 if unparseable."""
+    if not iso:
+        return 0
+    digits = "".join(ch for ch in iso[:10] if ch.isdigit())
+    return int(digits) if digits else 0
 
 
 # Curated public attendance estimates for recognisable events. Real ballpark
@@ -296,6 +402,80 @@ def _seed_coverage() -> int:
         conn.close()
 
 
+def _seed_companies() -> dict:
+    """Backfill the `companies` table from the people we just seeded.
+
+    The `companies` table starts empty because nothing populated it. This
+    walks DISTINCT people.company_name, creates one canonical company row per
+    account (deduped by normalized name + the alias table in companies.py —
+    so "Maersk" and "A.P. Moller Maersk" collapse to one), links
+    people.company_id to it, derives a vertical, and scores every company so
+    the /api/companies endpoints return cleanly.
+
+    Idempotent: the underlying resolver upserts by normalized name (existing
+    rows are reused, not duplicated) and only links people whose company_id is
+    NULL/stale, so re-running is a no-op on already-seeded data.
+
+    Reuses the production `grain.companies` module (the exact code the
+    /api/companies/backfill route calls) rather than reimplementing the
+    schema-aware INSERTs — this guarantees the seeded columns match the schema
+    in db.py and the fields the companies router reads (name, vertical,
+    account_tier, icp_score, name_variants_json, source_kind, …).
+
+    Field population:
+      - name / name_normalized / name_variants_json  ← resolver (canonical)
+      - source_kind = "seed"                         ← marks seed origin
+      - vertical    ← mode(people.vertical) per company (reuses the ICP
+                       verticals already attached to each person at seed time)
+      - account_tier / icp_score / icp_breakdown_json ← companies.score_all()
+        (uses the same IcpConfig as the rest of the tool)
+      - domain / logo_url / industry / fx_exposure_hint left NULL here — those
+        require an LLM / web pass (POST /api/companies/enrich/*); the offline
+        seed makes no network calls and stays key-free / deterministic.
+    """
+    from grain import companies  # local import: keeps the LLM-touching module
+                                 # off the import path unless we're seeding.
+
+    conn = db.get_conn()
+    try:
+        distinct_names = conn.execute(
+            "SELECT COUNT(DISTINCT company_name) FROM people "
+            "WHERE company_name IS NOT NULL AND company_name != ''"
+        ).fetchone()[0]
+        pre_existing = conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0]
+    finally:
+        conn.close()
+
+    if not distinct_names:
+        return {"created": 0, "linked_people": 0, "note": "no people with company_name"}
+
+    # 1. Create company rows + link people.company_id (offline: no domain LLM).
+    result = companies.backfill(enrich_domains=False)
+
+    # 2. Mark these as seed-origin (resolver defaults source_kind to "backfilled").
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "UPDATE companies SET source_kind = 'seed', updated_at = ? "
+            "WHERE source_kind = 'backfilled' OR source_kind IS NULL",
+            (db.now_iso(),),
+        )
+    finally:
+        conn.close()
+
+    # 3. Derive vertical from the mode of each company's people, then re-score.
+    #    inherit_vertical_from_people() calls companies.score_all() internally,
+    #    which writes account_tier + icp_score + icp_breakdown_json.
+    vert = companies.inherit_vertical_from_people()
+
+    result.update({
+        "vertical_inherited": vert.get("inherited", 0),
+        "vertical_unknown": vert.get("left_unknown", 0),
+        "companies_pre_existing": pre_existing,
+    })
+    return result
+
+
 def main() -> int:
     db.init_db()
     _seed_reps()
@@ -309,6 +489,10 @@ def main() -> int:
     print(f"Re-scored {n_scored} conferences")
     n_cov = _seed_coverage()
     print(f"Seeded {n_cov} coverage assignments")
+    # Companies must be backfilled AFTER people exist — it reads
+    # people.company_name and links people.company_id back to the new rows.
+    co = _seed_companies()
+    print(f"Backfilled companies: {co}")
     counts = db.counts()
     print(f"DB now contains: {counts}")
     return 0

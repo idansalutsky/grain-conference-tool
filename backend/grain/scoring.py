@@ -71,8 +71,10 @@ def _vertical_concentration(conf: dict) -> tuple[float, str]:
     v = (conf.get("vertical") or "").lower()
     themes = (conf.get("themes") or "").lower()
     if v in ICP_VERTICALS:
-        # Treasury / payments / cross-border get the strongest signal
-        strong = {"treasury", "payments", "psp", "cross_border_payments"}
+        # Core wedge: travel/booking (lead wedge) + payments rails + treasury +
+        # marketplaces all get the strongest company-type signal.
+        strong = {"travel", "booking", "marketplace", "treasury",
+                  "payments", "psp", "cross_border_payments"}
         if v in strong:
             return 1.0, f"core vertical: {v}"
         return 0.85, f"in-ICP vertical: {v}"

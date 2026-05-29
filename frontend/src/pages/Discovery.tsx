@@ -2,7 +2,7 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { toastErrorMessage } from "@/components/Toast";
+import { useToast, toastErrorMessage } from "@/components/Toast";
 import { SubTabs } from "@/components/SubTabs";
 
 const REGIONS = ["any", "NA", "EU", "APAC", "MEA", "LATAM"];
@@ -13,6 +13,7 @@ const EVENTS_TABS = [
 
 export function DiscoveryPage() {
   useDocumentTitle("Find events");
+  const { push: toast } = useToast();
   const qc = useQueryClient();
   const [region, setRegion] = useState("any");
   const [maxResults, setMaxResults] = useState(5);
@@ -30,6 +31,7 @@ export function DiscoveryPage() {
         max_results: maxResults,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["discovery-pending"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const approve = useMutation({
@@ -38,12 +40,14 @@ export function DiscoveryPage() {
       qc.invalidateQueries({ queryKey: ["discovery-pending"] });
       qc.invalidateQueries({ queryKey: ["conferences"] });
     },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const reject = useMutation({
     mutationFn: (id: string) =>
       api.post<any>(`/api/discovery/${id}/reject`, { reason: "not relevant" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["discovery-pending"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   return (

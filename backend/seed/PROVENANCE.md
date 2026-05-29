@@ -4,13 +4,56 @@ The seed is **real, publicly-sourced data** — not hand-typed fixtures. The bri
 allowed "a sample conference database from publicly available information"; this
 is that, built from real scraping + verification.
 
-## `conferences.json` — 77 events (after dedupe)
+## `conferences.json` — 89 events (after dedupe + cross-year cleanup)
 - Compiled from public event calendars (paytech.events and conference org sites)
   plus curated anchors Grain actually attends (Money20/20, EuroFinance, AFP…).
 - Fields: name, dates, city/country/region, format, themes (from agendas),
-  estimated attendance, pass/booth cost, website.
+  estimated attendance, pass/booth cost, website, `vertical`, grounded
+  `agenda_summary`, measured `audience_composition_json`, `source_url`.
 - Conference facts were fact-checked against source pages (dates/locations
   corrected where the calendar was stale).
+
+### Vertical classification (`vertical` field)
+Every event carries an explicit `vertical` (one of: payments, treasury, travel,
+booking, marketplace, psp, cross_border_payments, crypto, saas, supply_chain,
+fintech_other). This is read directly by the scorer's `vertical_concentration`
+factor (25% of the score). The `_vertical_of_conference()` heuristic in
+`seed_db.py` is the fallback for any event that ships *without* an explicit
+vertical; it matches travel/booking/marketplace on the event NAME first, so a
+travel-industry event whose agenda merely mentions "payments" (Phocuswright,
+WiT / Web in Travel, World Travel Market) still classifies as **travel**, not
+payments. Anchors are locked verbatim:
+- **Money20/20 (all editions) → payments**
+- **Phocuswright / WiT / World Travel Market / ITB / Skift / Arival / FTE /
+  TravelTech / HEDNA → travel**
+- **EuroFinance / AFP / Sibos / EBAday → treasury**
+
+### Cross-year de-duplication (a 2026-planning tool should be clean)
+The raw scrape contained the same recurring event in multiple years and from
+multiple sources. For planning we keep the next upcoming (2026+) edition and
+drop the older past-year copies. **Dropped** (each has a kept 2026+ edition):
+`money20-20-usa-2025`, `money20-20-europe-2025`, `afp-2024`, `phocuswright-2024`,
+`ifx-expo-international-2024`, `eurofinance-2024`, `eurofinance-2025`,
+`paytech-finovatefall` (duplicate of `finovate-fall-2026`, same Sept-2026 NYC
+event), and `disc-world-travel-market-london-wtm` (duplicate of
+`world-travel-market-london-2026`). No events were *fabricated* to roll forward —
+every kept edition already existed in the data. `dedupe_conferences()` in
+`seed_db.py` also enforces this at seed time (groups by year-stripped name,
+keeps the next upcoming edition) as a safety net against re-importing stale
+calendar rows.
+
+### Travel-tech anchors — analyst-estimated additions (NOT scraped)
+To make the travel wedge (Grain's lead-gen wedge) properly represented, the
+following well-known travel / travel-tech events were added as **analyst
+estimates**, not scrapes: **ITB Berlin, ITB Asia, Skift Global Forum,
+Phocuswright Europe, Future Travel Experience (FTE) Global, Arival 360, WiT
+Europe, WiT Japan & North Asia, Travel Technology Europe (TravelTech Show)**
+(ids prefixed `disc-`). For each: `vertical="travel"`, a grounded
+`agenda_summary`, a realistic PUBLIC ballpark `estimated_attendance`, a
+deliberately LOW `cfo_treasury_finance_pct` (12–15% — travel audiences are
+operator/commercial-heavy, not finance-heavy) in `audience_composition_json`,
+and the official `source_url`. **Treat attendance/audience-mix on these as
+analyst ballparks, not measured figures.**
 
 ## `people.json` — ICP-fit targets, agent-verified
 The per-event "who to approach" list, sourced from public speaker/sponsor/

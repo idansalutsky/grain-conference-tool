@@ -757,47 +757,88 @@ def get_company_with_rollup(company_id: str) -> Optional[dict]:
         conn.close()
 
 
+_SORT_COLUMNS = {
+    # api sort key -> ORDER BY clause (people_count/conference_count are
+    # computed aliases from the LEFT JOIN below)
+    "score": "c.icp_score DESC NULLS LAST, c.name ASC",
+    "icp_score": "c.icp_score DESC NULLS LAST, c.name ASC",
+    "name": "c.name ASC",
+    "people": "people_count DESC, c.name ASC",
+    "people_count": "people_count DESC, c.name ASC",
+    "conferences": "conference_count DESC, c.name ASC",
+}
+
+
 def list_companies(
     *,
     tier: Optional[str] = None,
     is_prospect: Optional[bool] = None,
     approved: Optional[bool] = True,
+    vertical: Optional[str] = None,
+    search: Optional[str] = None,
+    sort: str = "score",
     limit: int = 200,
 ) -> list[dict]:
-    """List companies for the index page. Sorted by icp_score desc."""
+    """List companies for the index page.
+
+    Filters (all optional, all cheap):
+      tier        — exact account_tier match (A / B / C)
+      is_prospect — 1/0 on is_prospect flag
+      approved    — 1/0 on approved flag (defaults to approved-only)
+      vertical    — exact, case-insensitive vertical match
+      search      — case-insensitive substring on name / name_variants_json
+
+    Sort: one of score (default), name, people, conferences.
+
+    people_count and conference_count are computed in a single LEFT JOIN
+    against people(company_id) so this stays O(1) queries regardless of
+    how many companies match. Returns [] on an empty table.
+    """
     where = []
     params: list = []
     if tier:
-        where.append("account_tier = ?")
+        where.append("c.account_tier = ?")
         params.append(tier)
     if is_prospect is not None:
-        where.append("is_prospect = ?")
+        where.append("c.is_prospect = ?")
         params.append(1 if is_prospect else 0)
     if approved is not None:
-        where.append("approved = ?")
+        where.append("c.approved = ?")
         params.append(1 if approved else 0)
-    sql = "SELECT * FROM companies"
+    if vertical:
+        where.append("LOWER(c.vertical) = ?")
+        params.append(vertical.strip().lower())
+    if search:
+        where.append("(LOWER(c.name) LIKE ? OR LOWER(c.name_variants_json) LIKE ?)")
+        like = f"%{search.strip().lower()}%"
+        params.extend([like, like])
+
+    order_by = _SORT_COLUMNS.get((sort or "score").lower(), _SORT_COLUMNS["score"])
+
+    sql = (
+        "SELECT c.*, "
+        "  COUNT(DISTINCT p.id) AS people_count, "
+        "  COUNT(DISTINCT p.conference_id) AS conference_count "
+        "FROM companies c "
+        "LEFT JOIN people p ON p.company_id = c.id "
+    )
     if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY icp_score DESC NULLS LAST, name LIMIT ?"
+        sql += "WHERE " + " AND ".join(where) + " "
+    sql += "GROUP BY c.id "
+    sql += f"ORDER BY {order_by} "
+    sql += "LIMIT ?"
     params.append(limit)
+
     conn = db.get_conn()
     try:
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
-    # Add cheap stats per row
-    if rows:
-        conn = db.get_conn()
+
+    # Parse JSON blobs to friendly shapes for the index cards.
+    for r in rows:
         try:
-            for r in rows:
-                r["people_count"] = conn.execute(
-                    "SELECT COUNT(*) FROM people WHERE company_id = ?", (r["id"],),
-                ).fetchone()[0]
-                r["conference_count"] = conn.execute(
-                    "SELECT COUNT(DISTINCT conference_id) FROM people "
-                    "WHERE company_id = ?", (r["id"],),
-                ).fetchone()[0]
-        finally:
-            conn.close()
+            r["name_variants"] = json.loads(r.get("name_variants_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            r["name_variants"] = []
     return rows

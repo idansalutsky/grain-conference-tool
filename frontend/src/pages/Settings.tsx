@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { SubTabs } from "@/components/SubTabs";
+import { useToast, toastErrorMessage } from "@/components/Toast";
 
 const DEFAULT_REP_ID = "rep-na-01";
 const ADMIN_TABS = [
@@ -81,6 +82,8 @@ export function SettingsPage() {
           </div>
         )}
       </section>
+
+      <IntegrationsSection />
 
       <div className="rule-label mb-3">Matching &amp; follow-up thresholds</div>
       <div className="space-y-2">
@@ -177,6 +180,111 @@ function SliderRow({ p, onCommit }: { p: any; onCommit: (v: number) => void }) {
       />
       <span className="text-xs font-mono w-12 text-right">{Number(val).toFixed(2)}</span>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Integrations / API keys — user-configurable secrets.
+// GET /api/settings/integrations returns, per provider, a masked status:
+//   { openrouter: { configured: bool, hint: "…abcd" }, perplexity: {…}, … }
+// PUT /api/settings/integrations accepts only the fields the user filled in.
+// We never render full secrets — only the configured flag and the masked hint.
+// ---------------------------------------------------------------------------
+const INTEGRATIONS: { provider: string; field: string; label: string; help: string }[] = [
+  { provider: "openrouter", field: "openrouter_api_key", label: "OpenRouter", help: "Powers LLM enrichment & briefs." },
+  { provider: "perplexity", field: "perplexity_api_key", label: "Perplexity (Sonar)", help: "Event & prospect discovery search." },
+  { provider: "hubspot", field: "hubspot_token", label: "HubSpot", help: "CRM sync for contacts & companies." },
+  { provider: "telegram", field: "telegram_bot_token", label: "Telegram bot", help: "Field capture bot token." },
+];
+
+function IntegrationsSection() {
+  const { push: toast } = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["integrations"],
+    queryFn: () => api.get<Record<string, any>>("/api/settings/integrations"),
+  });
+
+  // Only non-empty fields get sent — empty inputs leave the existing key alone.
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body: Record<string, string> = {};
+      for (const { field } of INTEGRATIONS) {
+        const v = (values[field] || "").trim();
+        if (v) body[field] = v;
+      }
+      return api.put("/api/settings/integrations", body);
+    },
+    onSuccess: () => {
+      toast("success", "Keys saved.");
+      setValues({});
+      qc.invalidateQueries({ queryKey: ["integrations"] });
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const anyFilled = INTEGRATIONS.some(({ field }) => (values[field] || "").trim());
+
+  return (
+    <section className="card p-5 mb-6">
+      <h2 className="label mb-1">🔑 API keys &amp; integrations</h2>
+      <p className="text-xs text-ink-500 mb-4 max-w-[65ch]">
+        Bring your own keys. Stored server-side and never shown back in full —
+        leave a field blank to keep the current value. Only the fields you fill
+        in are saved.
+      </p>
+
+      {isLoading && <div className="text-sm text-ink-500">Loading…</div>}
+
+      {!isLoading && (
+        <div className="space-y-3">
+          {INTEGRATIONS.map(({ provider, field, label, help }) => {
+            const status = (data && data[provider]) || {};
+            const configured = !!status.configured;
+            const hint: string = status.hint || "";
+            return (
+              <div key={provider}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-ink-900">{label}</span>
+                  {configured ? (
+                    <span className="badge bg-emerald-100 text-emerald-800">configured ✓</span>
+                  ) : (
+                    <span className="badge bg-ink-100 text-ink-500">not set</span>
+                  )}
+                  {configured && hint && (
+                    <span className="text-xs font-mono text-ink-500">{hint}</span>
+                  )}
+                </div>
+                <div className="text-xs text-ink-500 mb-1">{help}</div>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  placeholder={configured ? "Replace key…" : "Paste key…"}
+                  value={values[field] || ""}
+                  onChange={(e) => setValues((m) => ({ ...m, [field]: e.target.value }))}
+                  className="input w-full sm:max-w-md"
+                />
+              </div>
+            );
+          })}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              className="btn-primary text-sm"
+              disabled={!anyFilled || save.isPending}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Saving…" : "Save keys"}
+            </button>
+            <span className="text-xs text-ink-500">
+              Blank fields are ignored — existing keys stay put.
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

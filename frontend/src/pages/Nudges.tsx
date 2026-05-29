@@ -4,14 +4,17 @@ import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { ArcBadge } from "@/components/Badges";
 import { SubTabs } from "@/components/SubTabs";
+import { useToast, toastErrorMessage } from "@/components/Toast";
 
 const PEOPLE_TABS = [
   { to: "/contacts", label: "Contacts" },
+  { to: "/companies", label: "Companies" },
   { to: "/nudges", label: "Follow-ups" },
 ];
 
 export function NudgesPage() {
   useDocumentTitle("Follow-ups");
+  const { push: toast } = useToast();
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["nudges"],
@@ -21,18 +24,21 @@ export function NudgesPage() {
   const recompute = useMutation({
     mutationFn: () => api.post<any>("/api/nudges/recompute"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nudges"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const dismiss = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post<any>(`/api/nudges/${id}/dismiss`, { reason, decided_by: "ui" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nudges"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const accept = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post<any>(`/api/nudges/${id}/accept`, { reason, decided_by: "ui" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["nudges"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   return (

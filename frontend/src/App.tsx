@@ -10,6 +10,7 @@ import { ContactDetailPage } from "./pages/ContactDetail";
 import { NudgesPage } from "./pages/Nudges";
 import { SettingsPage } from "./pages/Settings";
 import { DiscoveryPage } from "./pages/Discovery";
+import { CompaniesPage } from "./pages/Companies";
 import { CompanyDetailPage } from "./pages/CompanyDetail";
 import { TeamPage } from "./pages/Team";
 
@@ -21,7 +22,7 @@ export default function App() {
         <Route path="/today" element={<TodayPage />} />
         <Route path="/conferences" element={<ConferencesPage />} />
         <Route path="/conferences/:id" element={<ConferenceDetailPage />} />
-        {/* Company drill-down only — reached from a target/contact, not the nav. */}
+        <Route path="/companies" element={<CompaniesPage />} />
         <Route path="/companies/:id" element={<CompanyDetailPage />} />
         <Route path="/planning" element={<PlanningPage />} />
         <Route path="/capture" element={<CapturePage />} />
