@@ -186,26 +186,6 @@ CREATE INDEX IF NOT EXISTS idx_companies_norm ON companies(name_normalized);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(account_tier);
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(icp_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_prospect ON companies(is_prospect, approved);
-
-CREATE TABLE IF NOT EXISTS brain_insights (
-    id              TEXT PRIMARY KEY,
-    rep_id          TEXT NOT NULL,
-    kind            TEXT NOT NULL,
-    severity        TEXT NOT NULL,       -- high | medium | low
-    title           TEXT NOT NULL,
-    body            TEXT,
-    suggested_action TEXT,
-    evidence_json   TEXT,                -- contact_ids, encounter_ids, etc.
-    status          TEXT NOT NULL DEFAULT 'fresh',
-                                         -- fresh | dismissed | acknowledged | actioned
-    created_at      TEXT NOT NULL,
-    expires_at      TEXT NOT NULL,
-    decided_at      TEXT,
-    decided_by      TEXT,
-    decided_reason  TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_insights_rep ON brain_insights(rep_id, status, created_at);
-CREATE INDEX IF NOT EXISTS idx_insights_kind ON brain_insights(kind);
 """
 
 

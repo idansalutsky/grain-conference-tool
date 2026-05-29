@@ -41,14 +41,16 @@ def list_conferences(
     if min_score is not None:
         where.append("score >= ?"); params.append(min_score)
     sql = "SELECT * FROM conferences"
+    count_sql = "SELECT COUNT(*) FROM conferences"
     if where:
-        sql += " WHERE " + " AND ".join(where)
+        clause = " WHERE " + " AND ".join(where)
+        sql += clause
+        count_sql += clause
     sql += " ORDER BY score DESC NULLS LAST, start_date ASC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
     conn = db.get_conn()
     try:
-        rows = conn.execute(sql, params).fetchall()
-        total = conn.execute("SELECT COUNT(*) FROM conferences").fetchone()[0]
+        rows = conn.execute(sql, params + [limit, offset]).fetchall()
+        total = conn.execute(count_sql, params).fetchone()[0]  # respects filters
     finally:
         conn.close()
     return {"total": total, "count": len(rows), "items": [_row(r) for r in rows]}

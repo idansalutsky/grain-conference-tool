@@ -16,7 +16,7 @@ from pathlib import Path
 
 # Allow `python backend/seed_db.py` from project root
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
+if str(ROOT / "backend") not in sys.path:
     sys.path.insert(0, str(ROOT / "backend"))
 
 from grain import db, scoring  # noqa: E402
@@ -26,11 +26,14 @@ SEED_DIR = Path(__file__).resolve().parent / "seed"
 
 
 def _seed_reps() -> None:
-    """Default reps so the Telegram bot has someone to bind to."""
+    """Reps = real Grain GTM team members (scraped from public LinkedIn).
+    IDs are stable region anchors so the UI's default rep never breaks."""
     reps = [
-        ("rep-na-01", "Avi Cohen",  "avi@grain.test",  "NA"),
-        ("rep-eu-01", "Eli Kaplan", "eli@grain.test",  "EU"),
-        ("rep-apac-01", "Maya Chen", "maya@grain.test", "APAC"),
+        ("rep-na-01", "Chris Day", "chris@grain.test", "NA"),            # VP, North America
+        ("rep-eu-01", "Marc Padrosa Cabello", "marc@grain.test", "EU"),  # VP of Sales
+        ("rep-eu-02", "Diana Mihaylova", "diana@grain.test", "EU"),      # Director, Fintech
+        ("rep-apac-01", "Eugene Lin", "eugene@grain.test", "APAC"),      # Head of Sales (ex-Expedia)
+        ("rep-bd-01", "Ben Strugo", "ben@grain.test", "EU"),             # VP, Business Development
     ]
     conn = db.get_conn()
     try:
@@ -143,6 +146,7 @@ def seed_people() -> int:
                 "conference_id": p.get("conference_id"),
                 "persona": persona or p.get("persona"),
                 "persona_weight": float(weight or p.get("persona_weight") or 0.0),
+                "icp_score": p.get("icp_score"),
                 "created_at": db.now_iso(),
             }
             # Only insert if the conference_id exists (some seed people point

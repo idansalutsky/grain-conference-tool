@@ -57,7 +57,7 @@ cd frontend && npm install && npm run dev                  # frontend → http:/
 A fresh database is empty. Two scripts populate it (no API credits needed):
 
 ```bash
-python -m backend.seed_db      # ~78 real conferences (scored+tiered) + 200 ICP target people
+python -m backend.seed_db      # 77 real conferences (scored+tiered) + 861 real scraped people across 26 events + real Grain reps
 python -m backend.seed_demo    # the cross-conference demo: 6 sample contacts, all arc states + nudges
 ```
 
@@ -83,7 +83,7 @@ Frontend — React + Vite + Tailwind  (Today · Conferences · Planning · Captu
         │  HTTP / JSON  (frontend calls /api/*)
 Backend — FastAPI + SQLite (one file, no migrations)
         │  scoring · entity-resolution · arc · nudge · brief · voice ·
-        │  planning · discovery · prep-agent · brain-insights
+        │  planning · discovery · prep-agent
         ├── OpenRouter   (Gemini extraction + Perplexity Sonar discovery)
         ├── HubSpot      (contact push, dry-run without a token)
         └── Telegram     (optional field-capture channel)

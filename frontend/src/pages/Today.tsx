@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { TierBadge, PersonaBadge, ArcBadge } from "@/components/Badges";
-import { BrainInsights } from "@/components/BrainInsights";
 import { toastErrorMessage } from "@/components/Toast";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
@@ -34,9 +33,6 @@ export function TodayPage() {
 
   return (
     <div className="space-y-4">
-      {/* === From the brain — periodic LLM synthesis === */}
-      <BrainInsights repId={DEFAULT_REP_ID} />
-
       {/* === Hero — active or next event === */}
       {hasEvent ? (
         <section className={

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .. import config, db
 from .routers import (
     agents, briefs, companies, conferences, contacts, discovery, encounters,
-    hubspot, insights, nudges, people, planning, review, search, settings,
+    hubspot, nudges, people, planning, review, settings,
     telegram, today,
 )
 
@@ -59,7 +59,6 @@ for r in (
     today.router, conferences.router, companies.router, people.router,
     contacts.router, encounters.router, briefs.router, nudges.router,
     planning.router, settings.router, hubspot.router, telegram.router,
-    discovery.router, review.router, search.router, agents.router,
-    insights.router,
+    discovery.router, review.router, agents.router,
 ):
     app.include_router(r)

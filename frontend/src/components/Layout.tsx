@@ -1,6 +1,5 @@
 import { ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { SearchBar } from "./SearchBar";
 
 // One tab per moment in the rep's day: Decide → Plan → Capture → Recognise →
 // Act. (Company drill-down lives behind a contact/target, not as its own tab.)
@@ -39,9 +38,6 @@ export function Layout({ children }: { children: ReactNode }) {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto">
-            <SearchBar />
-          </div>
         </div>
       </header>
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">

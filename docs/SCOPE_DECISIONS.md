@@ -25,7 +25,7 @@ to "the five criteria are connected" — they all read from one object.
 | Planning: yearly coverage, gaps, geo+temporal trip clusters | #3 | Done — deterministic clustering with travel-saving estimate |
 | Field capture: 1-tap voice (browser transcription) + text | #4 | Done — speed-first, structured lead in seconds |
 | Cross-conference resolution + arc interpretation + calibrated nudge | #5 | Done — the hardest part; see `CROSS_CONFERENCE.md` |
-| AI features, each justified | #6 | voice→lead, arc summariser, conference discovery, approach-brief, selective prep agent, proactive brain-insights |
+| AI features, each justified | #6 | voice→lead, arc summariser, conference discovery, approach-brief, selective prep agent |
 | HubSpot push carrying `grain_*` intelligence (+ dry-run) | #7 | Done — the judgment travels with the contact |
 | BYO keys, one-file SQLite, Vercel+Render deploy | Constraints | Done — nothing hardcoded |
 
@@ -37,6 +37,14 @@ to "the five criteria are connected" — they all read from one object.
   the "simple enough for a non-technical salesperson" constraint. We kept the
   company **drill-down** (the FX-exposure context behind a target you click) and
   removed the prospecting flow from the rep's path.
+
+- **Proactive "brain insights" + semantic search — removed.** Both worked, but
+  they pushed the tool toward feeling like a *platform* rather than a rep's tool,
+  and "simplicity" is an explicit constraint. The insights were abstract where
+  the rep wants concrete next actions (which the nudges and prep agent already
+  give); the search box was rarely the way a rep navigates 8 screens. Cutting
+  them end-to-end (frontend + backend + schema) kept the surface honest and the
+  repo clean — every screen now maps to a moment in the rep's day.
 
 - **Live LinkedIn scraping for enrichment — out.** ToS-fragile, needs proxies,
   and breaks in a live demo. The approach brief is generated from the role +

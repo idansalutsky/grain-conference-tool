@@ -37,14 +37,16 @@ def list_people(
     if persona:
         where.append("persona = ?"); params.append(persona)
     sql = "SELECT * FROM people"
+    count_sql = "SELECT COUNT(*) FROM people"
     if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY persona_weight DESC NULLS LAST LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+        clause = " WHERE " + " AND ".join(where)
+        sql += clause
+        count_sql += clause
+    sql += " ORDER BY persona_weight DESC NULLS LAST, icp_score DESC NULLS LAST LIMIT ? OFFSET ?"
     conn = db.get_conn()
     try:
-        rows = conn.execute(sql, params).fetchall()
-        total = conn.execute("SELECT COUNT(*) FROM people").fetchone()[0]
+        rows = conn.execute(sql, params + [limit, offset]).fetchall()
+        total = conn.execute(count_sql, params).fetchone()[0]  # respects filters
     finally:
         conn.close()
     return {"total": total, "count": len(rows), "items": [dict(r) for r in rows]}

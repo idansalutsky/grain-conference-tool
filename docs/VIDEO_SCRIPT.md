@@ -38,6 +38,15 @@ Important nuance to mention:
 > Year-1 data; once we do, it becomes the dominant factor and the others
 > become priors."
 
+Scroll to the event's target list (the strongest moment — real people):
+> "And it doesn't just say *go* — it says *who to find*. This is real scraped
+> data: at Money20/20 Europe the tool surfaces the CFOs of Klarna, Stripe,
+> Revolut, Wise, Mollie. At a travel event like Phocuswright it surfaces the
+> CFOs of Booking Holdings, Trip.com, Hilton, Hyatt — exactly Grain's heavy-FX
+> travel buyers. Each is scored and tagged by buying role: BUYER, the
+> ENTRY_POINT who staffs the booth, the CHAMPION. The rep walks in with a
+> hit-list, not a badge scanner."
+
 ---
 
 ## 1:30 — 2:30 — PLAN: coverage + clusters + gaps

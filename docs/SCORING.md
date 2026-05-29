@@ -56,7 +56,7 @@ That's the closed-loop story.
 ## What's deliberately simple
 
 - All scoring is single-threaded SQLite read + Python compute. No
-  pre-aggregation, no caching. Re-scoring 80 conferences takes ~300ms.
+  pre-aggregation, no caching. Re-scoring all conferences takes ~300ms.
 - No LLM in the scoring path. Defensibility > sophistication.
 - The factor evidence strings are template-driven, not LLM-generated. They
   always say the same thing for the same input.

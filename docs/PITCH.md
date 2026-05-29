@@ -35,8 +35,9 @@ via `grain_*` properties.
 
 | Capability | Live or seed? | How it works |
 |---|---|---|
-| **78 conferences** | **Seed**, scraped-then-cached | Public event data (Money20/20, EuroFinance, Sibos, iFX EXPO, Seamless, Phocuswright…) with date, city, vertical, themes, format, attendance, cost. Deduped (3 same-event-same-year copies merged). Brief explicitly allowed a "sample conference database." |
-| **200 buying-committee people** | **Seed** | Speakers/sponsors at ICP companies, auto-classified into 6 personas by title pattern. The per-event "who to approach" list. |
+| **77 conferences** | **Seed**, scraped-then-cached | Public event data (Money20/20, EuroFinance, Sibos, iFX EXPO, Seamless, Phocuswright…) with date, city, vertical, themes, format, attendance, cost. Deduped (3 same-event-same-year copies merged). Brief explicitly allowed a "sample conference database." |
+| **861 real scraped people** (676 conference-linked, 26 events) | **Seed** (Apify + Sonar) | Real speakers/sponsors/entry-points at ICP companies, classified into 6 personas by title. This powers the per-event "who to approach" list — e.g. Money20/20 Europe surfaces the CFOs of Klarna, Stripe, Revolut, Wise, Mollie; Phocuswright surfaces CFOs of Booking Holdings, Trip.com, TripAdvisor, Hilton, Hyatt. Real names, real heavy-FX companies. |
+| **Reps = real Grain GTM team** | **Seed** | Chris Day (VP, North America), Marc Padrosa (VP Sales), Eugene Lin (Head of Sales, ex-Expedia), Diana Mihaylova, Ben Strugo — scraped from public LinkedIn. |
 | **6 demo contacts** | **Seed (sample)** | *Fictional* contacts whose histories exercise every arc state + nudge branch + edge case. **Not real people, not scraped.** Built by running 16 sample encounters through the *real* resolver + arc + nudge — the verdicts are engine-produced, not hand-typed. |
 | **Conference scoring + tiering** | **Deterministic** | 7-factor glass-box score with per-factor evidence. Runs with zero LLM calls. |
 | **Planning (coverage/clusters/gaps)** | **Deterministic** | Geo+temporal clustering with travel-saving estimate. No LLM. |
@@ -44,8 +45,7 @@ via `grain_*` properties.
 | **Voice → structured lead** | **🟢 LIVE (LLM)** | Browser Web Speech API transcribes in-browser (keyless), then one OpenRouter call structures the lead. Fallback: record audio → Gemini multimodal. |
 | **Conference discovery** | **🟢 LIVE (LLM)** | Perplexity Sonar grounded search; returns proposals with real source URLs; HIL approve → auto-scored into the list. |
 | **Approach brief + follow-up draft** | **🟢 LIVE (LLM)** | Sonar for grounded trigger-news + Gemini synthesis, tied to Grain's value prop. |
-| **Plan-my-prep agent** | **🟢 LIVE (LLM)** | Real tool-calling loop (selects targets, reuses/Generates briefs, flags competitors), streamed over SSE. The one agentic feature — justified because pre-event prep needs *selective* judgment. |
-| **Brain insights** | **🟢 LIVE (LLM)** | Deterministic evidence-gather (no hallucination) + one synthesis call → actionable insights with evidence. Persisted, so cached insights show without a live call. |
+| **Plan-my-prep agent** | **🟢 LIVE (LLM)** | Real tool-calling loop (selects targets, reuses/generates briefs, flags competitors), streamed over SSE. The one agentic feature — justified because pre-event prep needs *selective* judgment. |
 | **HubSpot push** | Dry-run by default; live with token | Real API (upsert by email); 7 `grain_*` properties carry the arc verdict, nudge, follow-up. |
 | **Telegram capture** | Bot + per-rep binding built; optional | Off the critical path (needs a public webhook URL). |
 
@@ -80,7 +80,7 @@ heavy-FX-buyer wedge that makes that non-obvious call correct.
 ## How the five evaluation axes are served (they interlock via one ICP)
 
 - **Sales empathy** — the field layer: 1-tap voice capture, the approach brief, the per-event hit-list, a nudge that stays quiet on weak signal. Built around the rep's day, not a CRUD form.
-- **AI judgment** — AI only where synthesis/reasoning is the right tool: voice→lead, the arc read, the prep agent, brain insights. Each justified in `docs/AI_STRATEGY.md`.
+- **AI judgment** — AI only where synthesis/reasoning is the right tool: voice→lead, the arc read, the approach brief, conference discovery, and the selective prep agent. Each justified in `docs/AI_STRATEGY.md`.
 - **Cross-conference intelligence** — resolution + interpretation (warming vs tire-kicker) + a calibrated nudge. `docs/CROSS_CONFERENCE.md` covers the edge cases: name variants, transliteration, job changes, missing data, name collisions.
 - **Shipping instinct** — one event source, ICP as a single config, scrape-to-cache demo-safety, the heavy/ToS-fragile work explicitly deferred. `docs/SCOPE_DECISIONS.md`.
 - **Communication** — this doc + the scope record + the video defend the weights, the matching edge cases, and where AI helped vs got in the way.
