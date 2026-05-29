@@ -27,6 +27,8 @@ Both have generous free tiers. Total cost: $7/month.
    - `TELEGRAM_BOT_TOKEN` — optional
    - `TELEGRAM_BOT_USERNAME` — optional
    - `HUBSPOT_PRIVATE_APP_TOKEN` — optional
+   - `ADMIN_API_KEY` — required only if using the Telegram bot (gates the
+     webhook-management endpoints; set it to any long random string)
 5. Click **Create Web Service**. First boot takes ~3 minutes (builds image,
    then seeds the DB via `python -m backend.seed_db` + `python -m backend.seed_demo`
    — conferences/people, then the cross-conference demo contacts. Both are
@@ -55,15 +57,20 @@ Settings → API keys), run **once**:
 ```bash
 curl -X POST https://grain-api.onrender.com/api/telegram/set-webhook \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Token: $ADMIN_API_KEY" \
   -d '{"base_url":"https://grain-api.onrender.com"}'
 # → {"ok": true, "webhook_url": ".../api/telegram/webhook", ...}
 ```
 
-That's it — it derives the webhook path, generates+stores the secret, and
-registers everything with Telegram in one shot. To check health any time:
+These management endpoints are **admin-gated** (the `X-Admin-Token` header
+must match the server's `ADMIN_API_KEY`) so nobody can repoint or delete your
+capture bot's webhook — a bot-hijack vector. With no `ADMIN_API_KEY` set they
+fail closed (503). It derives the webhook path, rotates+stores the spoof-proof
+secret, and registers everything with Telegram in one shot. To check health:
 
 ```bash
-curl https://grain-api.onrender.com/api/telegram/webhook-info
+curl https://grain-api.onrender.com/api/telegram/webhook-info \
+  -H "X-Admin-Token: $ADMIN_API_KEY"
 # shows the registered URL, pending update count, and last error (if any)
 ```
 

@@ -43,6 +43,16 @@ OPENROUTER_SEARCH_MODEL = _env("OPENROUTER_SEARCH_MODEL", "perplexity/sonar")
 # --- Telegram (static, non-secret) ---
 TELEGRAM_BOT_USERNAME = _env("TELEGRAM_BOT_USERNAME", "GrainSales_bot")
 
+# --- Admin gate (server-side) ---
+# Guards deploy-time admin ops (e.g. registering the Telegram webhook). When
+# unset, those endpoints fail CLOSED (503) rather than running unauthenticated.
+ADMIN_API_KEY = _env("ADMIN_API_KEY")
+
+# Optional allowlist: if set, the Telegram webhook may only be pointed at this
+# exact public origin (defence-in-depth so a stray admin call can't repoint the
+# bot at an arbitrary host). Leave unset to accept any https origin.
+PUBLIC_BASE_URL = _env("PUBLIC_BASE_URL")
+
 LOG_LEVEL = _env("LOG_LEVEL", "INFO")
 
 

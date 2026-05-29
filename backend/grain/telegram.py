@@ -177,12 +177,10 @@ def download_voice(file_id: str) -> Optional[Path]:
 # ---------------------------------------------------------------------------
 # Webhook registration — one-call setup for deploy
 # ---------------------------------------------------------------------------
-def _get_or_create_webhook_secret() -> str:
-    """A stable secret token Telegram echoes back on every update so we can
-    reject spoofed POSTs to the public webhook. Generated once, persisted."""
-    existing = db.get_setting(_WEBHOOK_SECRET_KEY)
-    if existing:
-        return existing
+def _rotate_webhook_secret() -> str:
+    """Generate + persist a FRESH secret token Telegram echoes back on every
+    update so we can reject spoofed POSTs. Rotated on each set_webhook call so
+    any previously-leaked secret is immediately invalidated."""
     secret = uuid.uuid4().hex
     db.set_setting(_WEBHOOK_SECRET_KEY, secret)
     return secret
@@ -191,6 +189,27 @@ def _get_or_create_webhook_secret() -> str:
 def webhook_secret() -> Optional[str]:
     """The stored webhook secret (None until set_webhook has run)."""
     return db.get_setting(_WEBHOOK_SECRET_KEY)
+
+
+def _validate_base_url(base_url: str) -> tuple[bool, str]:
+    """The webhook target must be a bare public https origin (scheme+host,
+    no path/userinfo/query). If PUBLIC_BASE_URL is configured, it must match
+    exactly — an allowlist so the bot can't be repointed at an arbitrary host.
+    """
+    from urllib.parse import urlparse
+    if not base_url or not isinstance(base_url, str):
+        return False, "base_url required"
+    p = urlparse(base_url.rstrip("/"))
+    if p.scheme != "https" or not p.netloc:
+        return False, "base_url must be a public https:// origin"
+    if p.username or p.password:
+        return False, "base_url must not contain credentials"
+    if p.path not in ("", "/") or p.query or p.fragment:
+        return False, "base_url must be a bare origin (no path/query)"
+    allow = config.PUBLIC_BASE_URL
+    if allow and base_url.rstrip("/") != allow.rstrip("/"):
+        return False, f"base_url not in allowlist (expected {allow})"
+    return True, ""
 
 
 def set_webhook(base_url: str) -> dict:
@@ -205,10 +224,11 @@ def set_webhook(base_url: str) -> dict:
     if not config.TELEGRAM_BOT_TOKEN:
         return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set — add it in "
                 "Settings → API keys first."}
-    if not base_url or not base_url.startswith("https://"):
-        return {"ok": False, "error": "base_url must be a public https:// origin"}
+    ok, why = _validate_base_url(base_url)
+    if not ok:
+        return {"ok": False, "error": why}
     url = base_url.rstrip("/") + WEBHOOK_PATH
-    secret = _get_or_create_webhook_secret()
+    secret = _rotate_webhook_secret()
     try:
         with httpx.Client(timeout=15.0) as client:
             r = client.post(

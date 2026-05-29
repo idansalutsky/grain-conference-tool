@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from ... import config
 from ... import telegram as tg
+from ..deps import require_admin
 
 router = APIRouter(prefix="/api/telegram", tags=["telegram"])
 
@@ -30,23 +31,25 @@ class SetWebhookBody(BaseModel):
     base_url: str  # public https origin of the deployed API
 
 
-@router.post("/set-webhook")
+@router.post("/set-webhook", dependencies=[Depends(require_admin)])
 def set_webhook(body: SetWebhookBody) -> dict:
     """One-call deploy setup: register this server's public webhook with
-    Telegram (with a spoof-proof secret). Call once after deploy, e.g.
-    base_url = "https://grain-api.onrender.com"."""
+    Telegram (with a spoof-proof secret, rotated on each call). Admin-only.
+    Call once after deploy, e.g. base_url = "https://grain-api.onrender.com"."""
     return tg.set_webhook(body.base_url)
 
 
-@router.delete("/webhook")
+@router.delete("/webhook", dependencies=[Depends(require_admin)])
 def remove_webhook() -> dict:
-    """Unregister the webhook (switch back to no-webhook / local)."""
+    """Unregister the webhook (switch back to no-webhook / local). Admin-only —
+    this disables the field-capture bot, so it's a destructive op."""
     return tg.delete_webhook()
 
 
-@router.get("/webhook-info")
+@router.get("/webhook-info", dependencies=[Depends(require_admin)])
 def webhook_info() -> dict:
-    """What webhook Telegram currently has for this bot + its health."""
+    """What webhook Telegram currently has for this bot + its health.
+    Admin-only — the response can reveal the deployment URL."""
     return tg.get_webhook_info()
 
 
