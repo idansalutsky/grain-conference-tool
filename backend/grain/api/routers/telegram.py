@@ -14,8 +14,40 @@ router = APIRouter(prefix="/api/telegram", tags=["telegram"])
 
 @router.post("/webhook")
 async def webhook(request: Request) -> dict:
+    # If a webhook secret has been registered (via /set-webhook), Telegram
+    # echoes it in this header on every update. Reject anything that doesn't
+    # match — stops randoms POSTing fake updates to the public endpoint.
+    expected = tg.webhook_secret()
+    if expected:
+        got = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if got != expected:
+            raise HTTPException(403, "bad webhook secret")
     update = await request.json()
     return tg.handle_update(update)
+
+
+class SetWebhookBody(BaseModel):
+    base_url: str  # public https origin of the deployed API
+
+
+@router.post("/set-webhook")
+def set_webhook(body: SetWebhookBody) -> dict:
+    """One-call deploy setup: register this server's public webhook with
+    Telegram (with a spoof-proof secret). Call once after deploy, e.g.
+    base_url = "https://grain-api.onrender.com"."""
+    return tg.set_webhook(body.base_url)
+
+
+@router.delete("/webhook")
+def remove_webhook() -> dict:
+    """Unregister the webhook (switch back to no-webhook / local)."""
+    return tg.delete_webhook()
+
+
+@router.get("/webhook-info")
+def webhook_info() -> dict:
+    """What webhook Telegram currently has for this bot + its health."""
+    return tg.get_webhook_info()
 
 
 class TokenRequest(BaseModel):

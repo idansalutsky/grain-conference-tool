@@ -26,6 +26,10 @@ log = logging.getLogger("grain.telegram")
 
 TELEGRAM_API = "https://api.telegram.org"
 
+# The path the FastAPI webhook route is mounted at. Telegram POSTs updates here.
+WEBHOOK_PATH = "/api/telegram/webhook"
+_WEBHOOK_SECRET_KEY = "telegram.webhook_secret"
+
 
 # ---------------------------------------------------------------------------
 # Token / binding
@@ -168,6 +172,91 @@ def download_voice(file_id: str) -> Optional[Path]:
     except httpx.HTTPError as exc:
         log.warning("download_voice failed: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Webhook registration — one-call setup for deploy
+# ---------------------------------------------------------------------------
+def _get_or_create_webhook_secret() -> str:
+    """A stable secret token Telegram echoes back on every update so we can
+    reject spoofed POSTs to the public webhook. Generated once, persisted."""
+    existing = db.get_setting(_WEBHOOK_SECRET_KEY)
+    if existing:
+        return existing
+    secret = uuid.uuid4().hex
+    db.set_setting(_WEBHOOK_SECRET_KEY, secret)
+    return secret
+
+
+def webhook_secret() -> Optional[str]:
+    """The stored webhook secret (None until set_webhook has run)."""
+    return db.get_setting(_WEBHOOK_SECRET_KEY)
+
+
+def set_webhook(base_url: str) -> dict:
+    """Register this server's public webhook with Telegram in one call.
+
+    `base_url` is the public origin of the deployed API
+    (e.g. https://grain-api.onrender.com). We append WEBHOOK_PATH and pass a
+    persisted `secret_token`; Telegram returns it in the
+    `X-Telegram-Bot-Api-Secret-Token` header on every update, which the
+    webhook route verifies.
+    """
+    if not config.TELEGRAM_BOT_TOKEN:
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set — add it in "
+                "Settings → API keys first."}
+    if not base_url or not base_url.startswith("https://"):
+        return {"ok": False, "error": "base_url must be a public https:// origin"}
+    url = base_url.rstrip("/") + WEBHOOK_PATH
+    secret = _get_or_create_webhook_secret()
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.post(
+                f"{TELEGRAM_API}/bot{config.TELEGRAM_BOT_TOKEN}/setWebhook",
+                json={
+                    "url": url,
+                    "secret_token": secret,
+                    "allowed_updates": ["message", "edited_message"],
+                    "drop_pending_updates": True,
+                },
+            )
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": str(exc)[:200], "webhook_url": url}
+    if r.status_code >= 400:
+        return {"ok": False, "error": r.text[:300], "webhook_url": url}
+    body = r.json()
+    return {"ok": bool(body.get("ok")), "webhook_url": url,
+            "description": body.get("description")}
+
+
+def delete_webhook() -> dict:
+    """Unregister the webhook (e.g. to switch back to local polling)."""
+    if not config.TELEGRAM_BOT_TOKEN:
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set"}
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.post(
+                f"{TELEGRAM_API}/bot{config.TELEGRAM_BOT_TOKEN}/deleteWebhook",
+                json={"drop_pending_updates": False},
+            )
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+    return r.json() if r.status_code < 400 else {"ok": False, "error": r.text[:300]}
+
+
+def get_webhook_info() -> dict:
+    """Ask Telegram what webhook (if any) is currently registered + its health
+    (pending update count, last error). Useful for the deploy-time check."""
+    if not config.TELEGRAM_BOT_TOKEN:
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not set"}
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.get(
+                f"{TELEGRAM_API}/bot{config.TELEGRAM_BOT_TOKEN}/getWebhookInfo"
+            )
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+    return r.json() if r.status_code < 400 else {"ok": False, "error": r.text[:300]}
 
 
 # ---------------------------------------------------------------------------

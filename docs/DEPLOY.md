@@ -46,11 +46,30 @@ Both have generous free tiers. Total cost: $7/month.
 
 ### Connecting the Telegram webhook (if using the bot)
 
-After the API is live:
+The bot only receives messages once Telegram knows the public URL to POST
+updates to. There's a one-call helper that does this *and* installs a
+spoof-proof secret (so randoms can't POST fake updates to your public
+endpoint). After the API is live and `TELEGRAM_BOT_TOKEN` is set (env var or
+Settings → API keys), run **once**:
+
 ```bash
-curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
-  -d "url=https://grain-api.onrender.com/api/telegram/webhook"
+curl -X POST https://grain-api.onrender.com/api/telegram/set-webhook \
+  -H "Content-Type: application/json" \
+  -d '{"base_url":"https://grain-api.onrender.com"}'
+# → {"ok": true, "webhook_url": ".../api/telegram/webhook", ...}
 ```
+
+That's it — it derives the webhook path, generates+stores the secret, and
+registers everything with Telegram in one shot. To check health any time:
+
+```bash
+curl https://grain-api.onrender.com/api/telegram/webhook-info
+# shows the registered URL, pending update count, and last error (if any)
+```
+
+`DELETE /api/telegram/webhook` unregisters it. (The raw Telegram
+`setWebhook` API still works if you prefer doing it by hand, but you'd then
+have to manage the secret yourself.)
 
 ## Option B — Fly.io
 
@@ -89,6 +108,7 @@ Nginx reverse-proxy + a Let's Encrypt cert (Caddy is easier) handle HTTPS.
 - [ ] Capture page: tap mic, speak (Chrome/Edge transcribes in-browser), get a structured lead — or type it
 - [ ] (If using HubSpot) `POST /api/hubspot/push/<contact-id>` returns `ok:true`
 - [ ] (If using Telegram) `/api/telegram/bot-info` returns the bot username
+- [ ] (If using Telegram) ran `POST /api/telegram/set-webhook` once → `webhook-info` shows the URL with no `last_error_message`
 
 ## Backups
 
