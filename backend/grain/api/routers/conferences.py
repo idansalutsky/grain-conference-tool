@@ -28,6 +28,7 @@ def list_conferences(
     region: Optional[str] = None,
     vertical: Optional[str] = None,
     min_score: Optional[float] = None,
+    search: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
 ) -> dict:
@@ -40,6 +41,11 @@ def list_conferences(
         where.append("vertical = ?"); params.append(vertical)
     if min_score is not None:
         where.append("score >= ?"); params.append(min_score)
+    if search and search.strip():
+        # DEFECT 1: case-insensitive match on name OR themes.
+        like = f"%{search.strip().lower()}%"
+        where.append("(LOWER(name) LIKE ? OR LOWER(IFNULL(themes,'')) LIKE ?)")
+        params.append(like); params.append(like)
     sql = "SELECT * FROM conferences"
     count_sql = "SELECT COUNT(*) FROM conferences"
     if where:
@@ -138,7 +144,12 @@ class ScoreAdjust(BaseModel):
 @router.post("/{conference_id}/score/adjust")
 def adjust_score(conference_id: str, body: ScoreAdjust) -> dict:
     """Human-in-the-loop manual score adjustment. The rep can argue with the
-    7-factor model when reality on the ground says otherwise."""
+    7-factor model when reality on the ground says otherwise.
+
+    DEFECT 6: the adjusted score is persisted as a sticky OVERRIDE (via
+    scoring.set_score_override), so the next /rescore respects it instead of
+    silently wiping the human's call back to the model number.
+    """
     conn = db.get_conn()
     try:
         row = conn.execute(
@@ -156,6 +167,8 @@ def adjust_score(conference_id: str, body: ScoreAdjust) -> dict:
         )
     finally:
         conn.close()
+    # Pin the override so rescore_all() won't overwrite it.
+    scoring.set_score_override(conference_id, after)
     db.log_feedback(
         decision_kind="conference_score_adjust",
         target_kind="conference", target_id=conference_id,

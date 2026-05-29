@@ -665,6 +665,306 @@ def ground_tier_a_with_sonar(limit: int = 30, *, only_missing: bool = False) -> 
 
 
 # ---------------------------------------------------------------------------
+# Curated, offline enrichment for recognisable ICP companies
+# ---------------------------------------------------------------------------
+# Grounded (not LLM-fabricated) attributes for the well-known accounts that
+# actually appear in our seed data. Keyed by normalize_name(). Each tuple is:
+#   (domain, industry, fx_exposure_hint, why_grain_fit)
+# Domains are the real primary corporate domains (so the favicon/logo works);
+# why_grain_fit names the specific cross-border / multi-currency FX pattern
+# tied to Grain's ICP. Long-tail / genuinely-unknown names are intentionally
+# left out (domain stays NULL) and get an honest generic fit line at runtime.
+_HI = "high"
+_MED = "medium"
+_LOW = "low"
+CURATED_ENRICHMENT: dict[str, tuple] = {
+    # --- Payments / PSP / acquiring ----------------------------------------
+    "stripe": ("stripe.com", "Payments / PSP", _HI,
+               "Global payments platform processing in 135+ currencies — settlement and payout FX is core."),
+    "adyen": ("adyen.com", "Payments / PSP", _HI,
+              "Single-platform acquirer settling merchant funds across dozens of currencies and markets."),
+    "worldpay": ("worldpay.com", "Payments / PSP", _HI,
+                 "Global acquirer moving cross-border card volume — multi-currency settlement at scale."),
+    "fis": ("fisglobal.com", "Financial technology", _MED,
+            "Banking and payments tech serving institutions worldwide with cross-border transaction flows."),
+    "paypal": ("paypal.com", "Payments / wallet", _HI,
+               "Cross-border consumer and merchant payments with built-in currency conversion."),
+    "mollie": ("mollie.com", "Payments / PSP", _HI,
+               "European PSP settling merchant payments across multiple currencies and markets."),
+    "mastercard": ("mastercard.com", "Card network", _HI,
+                   "Global card network clearing cross-border transactions in every major currency."),
+    "american express": ("americanexpress.com", "Card network / payments", _HI,
+                         "Global card issuer and network with heavy cross-border travel and FX volume."),
+    "marqeta": ("marqeta.com", "Card issuing platform", _MED,
+                "Modern card-issuing platform expanding internationally with multi-currency programs."),
+    "network international": ("network.global", "Payments / PSP", _HI,
+                             "Middle East / Africa acquirer processing multi-currency merchant payments."),
+    "paytabs": ("paytabs.com", "Payments / PSP", _HI,
+                "MENA payment gateway handling cross-border and multi-currency merchant settlement."),
+    "tap payments": ("tap.company", "Payments / PSP", _HI,
+                     "Gulf-region PSP processing multi-currency online payments across MENA markets."),
+    "tabby": ("tabby.ai", "BNPL / fintech", _MED,
+              "MENA buy-now-pay-later operating across multiple currencies and regulatory regimes."),
+    "tamara": ("tamara.co", "BNPL / fintech", _MED,
+               "Gulf BNPL provider with cross-border merchant and consumer flows."),
+    "payabl": ("payabl.com", "Payments / PSP", _HI,
+               "European PSP and acquirer settling merchant funds in multiple currencies."),
+    "silverflow": ("silverflow.com", "Payments infrastructure", _HI,
+                   "Cloud card-processing platform connecting acquirers to networks across currencies."),
+    "optty": ("optty.com", "Payments orchestration", _MED,
+              "Payment-method orchestration spanning many markets and currencies."),
+    "tabapay": ("tabapay.com", "Payments / money movement", _MED,
+                "Instant money-movement rails expanding cross-border."),
+    "tassat": ("tassat.com", "B2B payments / blockchain", _MED,
+               "B2B real-time payments network with digital-currency settlement."),
+    # --- Fintech / banking infra -------------------------------------------
+    "klarna": ("klarna.com", "BNPL / fintech", _HI,
+               "Pan-European BNPL and bank settling consumer and merchant flows in many currencies."),
+    "trade republic": ("traderepublic.com", "Neobroker / fintech", _MED,
+                       "European broker-bank with multi-currency securities and cash holdings."),
+    "tyme": ("tymebank.co.za", "Digital banking", _MED,
+             "Emerging-market digital bank operating across South Africa and Southeast Asia."),
+    "thought machine": ("thoughtmachine.net", "Core banking platform", _MED,
+                        "Cloud core-banking vendor powering multi-currency ledgers for global banks."),
+    "ncino": ("ncino.com", "Banking software / SaaS", _LOW,
+              "Cloud banking software; modest direct FX, mostly USD SaaS revenue."),
+    "q2": ("q2.com", "Banking software / SaaS", _LOW,
+           "Digital banking platform; predominantly domestic US revenue."),
+    "jack henry": ("jackhenry.com", "Banking software", _LOW,
+                   "Core banking and payments for US community banks — mostly single-currency."),
+    "codat": ("codat.io", "Fintech API / data", _LOW,
+              "SMB financial-data API; limited direct FX exposure."),
+    "finmid": ("finmid.com", "Embedded finance", _MED,
+               "Embedded B2B financing across European markets and currencies."),
+    "yodlee": ("yodlee.com", "Financial data aggregation", _LOW,
+               "Financial-data aggregation; limited direct currency exposure."),
+    "amount": ("amount.com", "Lending software / SaaS", _LOW,
+               "Digital lending platform; predominantly US-domestic."),
+    "extend": ("paywithextend.com", "Virtual cards / fintech", _MED,
+               "Virtual-card platform with cross-border spend use cases."),
+    "alpaca": ("alpaca.markets", "Brokerage API / fintech", _MED,
+               "Global brokerage API with multi-currency investing flows."),
+    "astra": ("astra.finance", "Payments automation", _MED,
+              "Automated money-movement infrastructure expanding across rails."),
+    "paytm": ("paytm.com", "Payments / fintech", _MED,
+              "Indian super-app; large domestic volume with growing cross-border remittance."),
+    "infosys": ("infosys.com", "IT services", _MED,
+                "Global IT services firm billing clients across many currencies."),
+    "ibm": ("ibm.com", "Technology / services", _MED,
+            "Multinational tech vendor with revenue and costs across dozens of currencies."),
+    # --- Remittance / cross-border / super-apps ----------------------------
+    "ant": ("antgroup.com", "Fintech / payments", _HI,
+            "Global fintech (Alipay) moving cross-border consumer and merchant payments."),
+    "ant international": ("antgroup.com", "Cross-border payments", _HI,
+                          "Ant's international arm built around cross-border, multi-currency settlement."),
+    "flutterwave": ("flutterwave.com", "Payments / PSP", _HI,
+                    "African payments infrastructure built for cross-border, multi-currency flows."),
+    "rappi": ("rappi.com", "Delivery super-app", _MED,
+              "LatAm super-app operating across multiple countries and currencies."),
+    "mercado libre": ("mercadolibre.com", "Marketplace / fintech", _HI,
+                      "LatAm marketplace + Mercado Pago settling across many currencies and borders."),
+    "neon pagamentos": ("neon.com.br", "Digital banking", _LOW,
+                        "Brazilian digital bank — primarily BRL-domestic."),
+    # --- Crypto / digital assets -------------------------------------------
+    "binance": ("binance.com", "Crypto exchange", _HI,
+                "Global crypto exchange with fiat on/off-ramps in dozens of currencies."),
+    "coinbase": ("coinbase.com", "Crypto exchange", _HI,
+                 "Crypto exchange operating fiat rails across multiple currencies and regions."),
+    "kraken": ("kraken.com", "Crypto exchange", _HI,
+               "Crypto exchange with multi-currency fiat funding across global markets."),
+    "fireblocks": ("fireblocks.com", "Digital-asset infrastructure", _HI,
+                   "Digital-asset transfer network settling value across currencies and chains."),
+    "galaxy digital": ("galaxy.com", "Digital-asset financial services", _HI,
+                       "Crypto financial-services firm with cross-border, multi-asset treasury flows."),
+    # --- Travel: OTAs / booking --------------------------------------------
+    "booking holdings": ("booking.com", "Online travel / OTA", _HI,
+                         "Global OTA settling hotel and travel inventory in many currencies — heavy multi-currency FX exposure."),
+    "expedia": ("expedia.com", "Online travel / OTA", _HI,
+                "Global OTA collecting and paying out travel bookings across dozens of currencies."),
+    "trip.com": ("trip.com", "Online travel / OTA", _HI,
+                 "International OTA settling cross-border travel bookings in many currencies."),
+    "ctrip": ("trip.com", "Online travel / OTA", _HI,
+              "Trip.com Group's China travel platform with cross-border, multi-currency bookings."),
+    "elong": ("ly.com", "Online travel / OTA", _MED,
+              "Chinese OTA with cross-border travel inventory and currency exposure."),
+    "airbnb": ("airbnb.com", "Travel marketplace", _HI,
+               "Global stays marketplace collecting from guests and paying hosts across currencies."),
+    "agoda": ("agoda.com", "Online travel / OTA", _HI,
+              "Asia-focused OTA settling accommodation bookings in many currencies."),
+    "hopper": ("hopper.com", "Travel app / fintech", _HI,
+               "Travel-booking app with FX-sensitive fare and fintech products across markets."),
+    "kayak": ("kayak.com", "Travel metasearch", _MED,
+              "Travel metasearch routing bookings across global suppliers and currencies."),
+    "skyscanner": ("skyscanner.net", "Travel metasearch", _HI,
+                   "Global flight metasearch directing cross-border, multi-currency bookings."),
+    "wego": ("wego.com", "Travel metasearch", _HI,
+             "MENA / APAC travel metasearch with multi-currency cross-border bookings."),
+    "makemytrip": ("makemytrip.com", "Online travel / OTA", _HI,
+                   "Indian OTA with significant outbound, cross-border travel and FX flows."),
+    "despegar": ("despegar.com", "Online travel / OTA", _HI,
+                 "Leading LatAm OTA settling travel across many countries and currencies."),
+    "despegar.com": ("despegar.com", "Online travel / OTA", _HI,
+                     "Leading LatAm OTA settling travel across many countries and currencies."),
+    "edreams odigeo": ("edreamsodigeo.com", "Online travel / OTA", _HI,
+                       "Pan-European OTA processing flight bookings across many currencies."),
+    "on the beach": ("onthebeach.co.uk", "Online travel / OTA", _MED,
+                     "UK beach-holiday OTA with EUR-denominated supplier payments."),
+    "almosafer": ("almosafer.com", "Online travel / OTA", _HI,
+                  "Saudi travel agency with cross-border supplier settlement in multiple currencies."),
+    "klook": ("klook.com", "Travel experiences platform", _HI,
+              "APAC experiences platform collecting and paying across many currencies and markets."),
+    "travelperk": ("travelperk.com", "Business travel / SaaS", _HI,
+                   "Business-travel platform settling bookings for clients across currencies."),
+    "intrepid travel": ("intrepidtravel.com", "Tour operator", _HI,
+                        "Global adventure-tour operator paying suppliers in many local currencies."),
+    "easyjet holidays": ("easyjet.com", "Travel / tour operator", _MED,
+                         "European package-holiday arm with EUR/GBP supplier exposure."),
+    # --- Travel: tech / GDS / hospitality ----------------------------------
+    "amadeus": ("amadeus.com", "Travel technology / GDS", _HI,
+                "Global distribution system processing travel transactions in every major currency."),
+    "sabre": ("sabre.com", "Travel technology / GDS", _HI,
+              "Global GDS clearing airline and hotel transactions across currencies."),
+    "travelport": ("travelport.com", "Travel technology / GDS", _HI,
+                   "Global travel-commerce platform settling cross-border bookings."),
+    "hotelbeds": ("hotelbeds.com", "Travel B2B / bedbank", _HI,
+                  "B2B bedbank buying and reselling hotel inventory across dozens of currencies."),
+    "mews": ("mews.com", "Hospitality software / SaaS", _HI,
+             "Cloud hotel-management platform processing guest payments in many currencies."),
+    "marriott": ("marriott.com", "Hospitality", _HI,
+                 "Global hotel group with revenue and franchise fees across many currencies."),
+    "hilton": ("hilton.com", "Hospitality", _HI,
+               "Global hotel group collecting room revenue in dozens of currencies."),
+    "hyatt": ("hyatt.com", "Hospitality", _HI,
+              "Global hotel group with multi-currency revenue and cross-border operations."),
+    "ihg": ("ihg.com", "Hospitality", _HI,
+            "Global hotel group (IHG) with franchise and room revenue across currencies."),
+    "accor": ("accor.com", "Hospitality", _HI,
+              "European-headquartered global hotel group with broad multi-currency revenue."),
+    "shangrila": ("shangri-la.com", "Hospitality", _HI,
+                  "Asian luxury hotel group with multi-currency revenue across markets."),
+    "banyan tree": ("banyantree.com", "Hospitality", _HI,
+                    "Resort group operating across Asia-Pacific with multi-currency revenue."),
+    # --- Airlines ----------------------------------------------------------
+    "lufthansa": ("lufthansagroup.com", "Airline group", _HI,
+                  "Global airline group with ticket revenue and fuel costs across many currencies."),
+    "singapore airlines": ("singaporeair.com", "Airline", _HI,
+                           "International airline selling tickets and buying fuel across currencies."),
+    "united airlines": ("united.com", "Airline", _HI,
+                        "Global airline with cross-border ticket revenue and FX-exposed costs."),
+    "cathay pacific": ("cathaypacific.com", "Airline", _HI,
+                       "Hong Kong flag carrier with multi-currency ticket and cargo revenue."),
+    "tui": ("tui.com", "Travel / tour operator", _HI,
+            "Integrated tourism group settling across source and destination currencies."),
+    # --- Retail / marketplace / commerce -----------------------------------
+    "shopify": ("shopify.com", "E-commerce platform", _HI,
+                "Commerce platform processing merchant sales and payouts across currencies."),
+    "bigcommerce": ("bigcommerce.com", "E-commerce platform", _MED,
+                    "SaaS commerce platform serving cross-border merchants."),
+    "spryker": ("spryker.com", "E-commerce platform", _MED,
+                "Enterprise commerce platform used by international, multi-currency merchants."),
+    "noon": ("noon.com", "E-commerce marketplace", _HI,
+             "MENA marketplace with cross-border sourcing and multi-currency settlement."),
+    "6thstreet.com": ("6thstreet.com", "E-commerce / fashion retail", _MED,
+                      "GCC online fashion retailer with cross-border sourcing."),
+    "styli": ("styli.com", "E-commerce / fashion retail", _MED,
+              "GCC fast-fashion e-tailer with cross-border supply chain."),
+    "desertcart": ("desertcart.com", "Cross-border e-commerce", _HI,
+                   "Cross-border online retailer shipping to 160+ countries in many currencies."),
+    "kibsons international": ("kibsons.com", "Online grocery", _LOW,
+                             "UAE online grocer — largely AED-domestic with some imports."),
+    "landmark": ("landmarkgroup.com", "Retail conglomerate", _HI,
+                 "MENA retail conglomerate sourcing globally with multi-currency payables."),
+    "al-futtaim": ("alfuttaim.com", "Retail / conglomerate", _HI,
+                   "Diversified MENA conglomerate with global suppliers and multi-currency trade."),
+    "alfuttaim": ("alfuttaim.com", "Retail / conglomerate", _HI,
+                  "Diversified MENA conglomerate with global suppliers and multi-currency trade."),
+    "maf": ("majidalfuttaim.com", "Retail / real estate", _HI,
+            "Majid Al Futtaim — MENA retail and malls group with cross-border sourcing."),
+    # --- Telecom -----------------------------------------------------------
+    "etisalat": ("eand.com", "Telecom", _MED,
+                 "UAE-based telecom group (e&) with operations across multiple currencies."),
+    "du": ("du.ae", "Telecom", _LOW,
+           "UAE telecom operator — predominantly AED-domestic."),
+    # --- Other tech --------------------------------------------------------
+    "tencent": ("tencent.com", "Technology / fintech", _HI,
+                "Global tech and payments (WeChat Pay) with cross-border transaction flows."),
+}
+del _HI, _MED, _LOW
+
+# Honest, non-fabricated fallback for accounts we don't have a curated row for.
+_GENERIC_FIT = (
+    "Operates across multiple markets — likely multi-currency exposure; "
+    "review for cross-border FX flows."
+)
+
+
+def seed_enrich_curated() -> dict:
+    """Populate domain / logo_url / industry / fx_exposure_hint / why_grain_fit
+    from the grounded CURATED_ENRICHMENT map (offline, deterministic).
+
+    For every approved company:
+      - if its normalized name is in the curated map → write the real domain,
+        logo, industry, fx hint and grounded why_grain_fit.
+      - otherwise → leave domain NULL (we don't fabricate domains) and write an
+        honest generic why_grain_fit so the rationale field is never empty.
+
+    Only fills NULL/empty fields, so it never clobbers richer data written by a
+    later LLM/Sonar pass. Re-scores afterwards so the now-populated
+    fx_exposure_hint feeds the ICP score. Idempotent.
+
+    Returns {curated, generic, domains_set}.
+    """
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, name, name_normalized, domain, industry, "
+            "       fx_exposure_hint, why_grain_fit "
+            "FROM companies WHERE approved = 1"
+        ).fetchall()
+
+        curated = 0
+        generic = 0
+        domains_set = 0
+        for r in rows:
+            norm = r["name_normalized"]
+            entry = CURATED_ENRICHMENT.get(norm)
+            if entry:
+                domain, industry, fx, why = entry
+                new_domain = r["domain"] or domain
+                new_logo = logo_url_for_domain(new_domain)
+                new_industry = r["industry"] or industry
+                new_fx = r["fx_exposure_hint"] or fx
+                new_why = r["why_grain_fit"] or why
+                conn.execute(
+                    "UPDATE companies SET domain = ?, logo_url = ?, industry = ?, "
+                    "  fx_exposure_hint = ?, why_grain_fit = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (new_domain, new_logo, new_industry, new_fx, new_why,
+                     db.now_iso(), r["id"]),
+                )
+                curated += 1
+                if not r["domain"] and domain:
+                    domains_set += 1
+            else:
+                # No curated row — fill only the rationale + an unknown fx hint,
+                # never a fabricated domain.
+                new_fx = r["fx_exposure_hint"] or "unknown"
+                new_why = r["why_grain_fit"] or _GENERIC_FIT
+                conn.execute(
+                    "UPDATE companies SET fx_exposure_hint = ?, why_grain_fit = ?, "
+                    "  updated_at = ? WHERE id = ?",
+                    (new_fx, new_why, db.now_iso(), r["id"]),
+                )
+                generic += 1
+    finally:
+        conn.close()
+
+    # fx_exposure_hint feeds 15% of the ICP score — recompute now.
+    score_all()
+    return {"curated": curated, "generic": generic, "domains_set": domains_set}
+
+
+# ---------------------------------------------------------------------------
 # Per-company rollup for the CompanyDetail page
 # ---------------------------------------------------------------------------
 def get_company_with_rollup(company_id: str) -> Optional[dict]:

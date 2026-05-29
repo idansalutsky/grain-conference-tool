@@ -90,6 +90,29 @@ def _days_since(iso: str) -> int:
     return (datetime.now(timezone.utc) - dt).days
 
 
+# Soft signals (or structured flags) that mean the meeting is already locked in —
+# a confirmed/booked/taken meeting genuinely needs no nudge. A meeting that was
+# merely *requested* is NOT here: that contact still needs a "confirm the time"
+# nudge rather than going silent.
+_MEETING_LOCKED_SIGNALS = {
+    "meeting_booked", "meeting_confirmed", "meeting_scheduled",
+    "meeting_taken", "meeting_held", "demo_booked", "demo_scheduled",
+}
+
+
+def _meeting_locked(encounters: list[dict]) -> bool:
+    """True if any encounter shows the meeting is confirmed/booked/taken (not
+    merely requested). Reads soft_signals and an optional structured flag."""
+    for e in encounters:
+        signals = {str(s).lower() for s in (e.get("soft_signals") or [])}
+        if signals & _MEETING_LOCKED_SIGNALS:
+            return True
+        struct = e.get("structured") or {}
+        if struct.get("meeting_confirmed") or struct.get("meeting_booked"):
+            return True
+    return False
+
+
 def _detect_job_change(encounters: list[dict]) -> tuple[bool, Optional[str], Optional[str]]:
     """Look at structured.company across encounter history; if it changed,
     return (True, old, new)."""
@@ -154,6 +177,10 @@ def evaluate(contact_id: str) -> dict:
     n = len(encounters)
     recency = _days_since(encounters[-1]["captured_at"]) if encounters else 99999
     ever_meeting = any(e["meeting_requested"] for e in encounters)
+    meeting_locked = _meeting_locked(encounters)
+    # A meeting that was REQUESTED but not yet confirmed/booked is a HOT lead
+    # that still needs action ("lock the time"), not a reason to go silent.
+    meeting_to_confirm = ever_meeting and not meeting_locked
     job_changed, old_co, new_co = _detect_job_change(encounters)
     last_title = encounters[-1]["structured"].get("title") if encounters else None
     job_change_to_icp = job_changed and _is_icp_title(last_title)
@@ -164,16 +191,19 @@ def evaluate(contact_id: str) -> dict:
         "arc": arc, "arc_confidence": arc_conf,
         "n_encounters": n, "recency_days": recency,
         "ever_meeting_requested": ever_meeting,
+        "meeting_locked": meeting_locked,
+        "meeting_to_confirm": meeting_to_confirm,
         "job_changed_to_icp_role": job_change_to_icp,
         "thresholds": {"arc_confidence": thr_arc, "recency_max_days": thr_rec},
     }
 
-    # Primary rule
+    # Primary rule — only a CONFIRMED/booked meeting suppresses; a meeting that
+    # was merely requested keeps the contact in the nudge flow (see confirm rule).
     primary = (
         arc == "warming"
         and arc_conf >= thr_arc
         and recency <= thr_rec
-        and not ever_meeting
+        and not meeting_locked
         and n >= MIN_ENCOUNTERS
     )
     # Bypass rule: warming + job change to ICP role
@@ -187,8 +217,8 @@ def evaluate(contact_id: str) -> dict:
             why.append(f"arc confidence {arc_conf:.2f} below {thr_arc}")
         if recency > thr_rec:
             why.append(f"last touch {recency}d ago > {thr_rec}d")
-        if ever_meeting and not bypass:
-            why.append("meeting already requested — no nudge needed")
+        if meeting_locked and not bypass:
+            why.append("meeting already booked — no nudge needed")
         if n < MIN_ENCOUNTERS:
             why.append(f"only {n} encounter — need ≥ {MIN_ENCOUNTERS}")
         if not why:
@@ -199,11 +229,18 @@ def evaluate(contact_id: str) -> dict:
         return out
 
     text = _draft_nudge_text(contact, encounters, gate)
+    # A requested-but-unconfirmed meeting is the hottest state: make the nudge a
+    # concrete "lock the time" call to action rather than a generic re-engage.
+    if meeting_to_confirm:
+        name = (contact.get("primary_name") or "this contact").split()[0]
+        text = (f"{name} asked for a meeting that isn't on the calendar yet — "
+                f"confirm the meeting and lock a time this week. " + text)
     if bypass and job_change_to_icp:
         text += f"  (Note: job change {old_co} → {new_co}; ICP-relevant.)"
     _persist(contact_id, True, text)
     return {"nudge_active": True, "nudge_text": text,
             "why_suppressed": [], "gate_checks": gate,
+            "meeting_to_confirm": meeting_to_confirm,
             "bypass_used": bypass and not primary}
 
 

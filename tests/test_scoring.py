@@ -33,10 +33,14 @@ def test_non_icp_event_scores_low():
     }
     s = scoring.score_conference(conf)
     assert s.tier in ("C", "B"), f"got tier {s.tier} score {s.total}"
-    # buyer_density and fx_exposure_proxy should be near-zero
+    # buyer_reachability and fx_exposure_proxy should be near-zero.
+    # (Factor was renamed buyer_density -> buyer_reachability when the model
+    # was re-tuned to credit the whole reachable buying committee, not just CFO
+    # density; the assertion intent — a non-ICP event has low buyer reach — is
+    # unchanged.)
     factors = {f.key: f for f in s.factors}
     assert factors["fx_exposure_proxy"].raw <= 0.4
-    assert factors["buyer_density"].raw <= 0.6
+    assert factors["buyer_reachability"].raw <= 0.6
 
 
 def test_factor_weights_sum_to_1():

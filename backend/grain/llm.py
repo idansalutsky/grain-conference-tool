@@ -131,6 +131,7 @@ EXTRACT_SYSTEM = (
     "  name           — best-effort full name (string OR null)\n"
     "  company        — company name (string OR null)\n"
     "  title          — job title (string OR null)\n"
+    "  email          — an email address if the rep mentioned/spelled one, else null\n"
     "  vertical       — one of: fintech_other / payments / travel / saas / treasury / crypto / unknown\n"
     "  what_discussed — 1-2 sentence summary IN ENGLISH (translate if needed)\n"
     "  soft_signals   — array of: wants_meeting / asked_about_pricing / explicit_pain / "
@@ -140,6 +141,9 @@ EXTRACT_SYSTEM = (
     "  linkedin       — a LinkedIn profile URL if one is visible/derivable, else null\n"
     "  phone          — a phone number if the rep stated one, else null\n"
     "  transcript     — verbatim transcript in original language\n"
+    "Extract the email whenever it appears in the note (e.g. 'her email is "
+    "michael@wise.com' → \"michael@wise.com\"). Email is a strong identity key "
+    "for matching this person across conferences, so never drop it when present.\n"
     "If a field is unknown, use null (or empty array)."
 )
 

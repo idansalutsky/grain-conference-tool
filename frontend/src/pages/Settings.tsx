@@ -14,6 +14,7 @@ const ADMIN_TABS = [
 export function SettingsPage() {
   useDocumentTitle("Settings");
   const qc = useQueryClient();
+  const { push: toast } = useToast();
   const { data, isLoading } = useQuery({
     queryKey: ["settings"],
     queryFn: () => api.get<any>("/api/settings"),
@@ -25,12 +26,18 @@ export function SettingsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings"] });
       qc.invalidateQueries({ queryKey: ["conferences"] });
+      toast("success", "Threshold updated.");
     },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const rescore = useMutation({
     mutationFn: () => api.post("/api/conferences/rescore"),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["conferences"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conferences"] });
+      toast("success", "Events re-scored.");
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const [tgToken, setTgToken] = useState<any | null>(null);
@@ -185,8 +192,9 @@ function SliderRow({ p, onCommit }: { p: any; onCommit: (v: number) => void }) {
 
 // ---------------------------------------------------------------------------
 // Integrations / API keys — user-configurable secrets.
-// GET /api/settings/integrations returns, per provider, a masked status:
-//   { openrouter: { configured: bool, hint: "…abcd" }, perplexity: {…}, … }
+// GET /api/settings/integrations returns, keyed by field name, a masked status:
+//   { integrations: { openrouter_api_key: { configured: bool, masked: "…abcd",
+//     source: "env" | "in_app" | null }, perplexity_api_key: {…}, … } }
 // PUT /api/settings/integrations accepts only the fields the user filled in.
 // We never render full secrets — only the configured flag and the masked hint.
 // ---------------------------------------------------------------------------
@@ -202,7 +210,8 @@ function IntegrationsSection() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["integrations"],
-    queryFn: () => api.get<Record<string, any>>("/api/settings/integrations"),
+    queryFn: () =>
+      api.get<{ integrations?: Record<string, any> }>("/api/settings/integrations"),
   });
 
   // Only non-empty fields get sent — empty inputs leave the existing key alone.
@@ -240,12 +249,13 @@ function IntegrationsSection() {
 
       {!isLoading && (
         <div className="space-y-3">
-          {INTEGRATIONS.map(({ provider, field, label, help }) => {
-            const status = (data && data[provider]) || {};
+          {INTEGRATIONS.map(({ field, label, help }) => {
+            const status = (data?.integrations && data.integrations[field]) || {};
             const configured = !!status.configured;
-            const hint: string = status.hint || "";
+            const hint: string = status.masked || "";
+            const source: string = status.source || "";
             return (
-              <div key={provider}>
+              <div key={field}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-semibold text-ink-900">{label}</span>
                   {configured ? (
@@ -255,6 +265,11 @@ function IntegrationsSection() {
                   )}
                   {configured && hint && (
                     <span className="text-xs font-mono text-ink-500">{hint}</span>
+                  )}
+                  {configured && source && (
+                    <span className="text-[10px] uppercase tracking-wider text-ink-400">
+                      {source === "env" ? "from env" : source === "in_app" ? "saved" : source}
+                    </span>
                   )}
                 </div>
                 <div className="text-xs text-ink-500 mb-1">{help}</div>

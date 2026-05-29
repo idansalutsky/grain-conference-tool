@@ -13,6 +13,7 @@ import { DiscoveryPage } from "./pages/Discovery";
 import { CompaniesPage } from "./pages/Companies";
 import { CompanyDetailPage } from "./pages/CompanyDetail";
 import { TeamPage } from "./pages/Team";
+import { BrainPage } from "./pages/Brain";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/today" replace />} />
         <Route path="/today" element={<TodayPage />} />
+        <Route path="/brain" element={<BrainPage />} />
         <Route path="/conferences" element={<ConferencesPage />} />
         <Route path="/conferences/:id" element={<ConferenceDetailPage />} />
         <Route path="/companies" element={<CompaniesPage />} />

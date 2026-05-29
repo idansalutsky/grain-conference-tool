@@ -25,8 +25,8 @@ interface Company {
   icp_score?: number | null;
 }
 
-// The endpoint returns {count, items} today, but the contract is documented as a
-// bare array — tolerate both so we don't break if the shape settles either way.
+// The endpoint returns {count, items}; tolerate a bare array too so we don't
+// break if the shape ever settles differently.
 function normalize(data: unknown): Company[] {
   if (Array.isArray(data)) return data as Company[];
   if (data && typeof data === "object" && Array.isArray((data as any).items)) {

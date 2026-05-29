@@ -18,13 +18,80 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
+from datetime import date
 from typing import Optional
 
 from . import db, llm
 from .icp import IcpConfig
 
 log = logging.getLogger("grain.discovery")
+
+
+# Today's reference date for the recency guard (DEFECT 11). Normal Python here,
+# so a live system reads the real clock; injectable for tests / reproducibility.
+def _today() -> date:
+    return date.today()
+
+
+def _norm_conf_name(name: str) -> str:
+    """Year-stripped, punctuation-stripped, lowercased name for dedupe.
+
+    Matches the normaliser used by the seed loader so a discovered
+    "Global Fintech Fest 2026" collapses onto the seeded "Global Fintech Fest".
+    """
+    n = re.sub(r"\b(19|20)\d{2}\b", "", (name or "").lower())
+    n = re.sub(r"[^a-z0-9 ]+", " ", n)
+    return re.sub(r"\s+", " ", n).strip()
+
+
+def _existing_conference_names() -> set[str]:
+    """Normalised names of every event already in the conferences table.
+
+    DEFECT 9: discovery previously deduped only against the 6 hardcoded ICP
+    anchor names, so it happily re-proposed events that were already seeded
+    (e.g. "Global Fintech Fest"). We now dedupe against the live DB.
+    """
+    conn = db.get_conn()
+    try:
+        rows = conn.execute("SELECT name FROM conferences").fetchall()
+    finally:
+        conn.close()
+    return {_norm_conf_name(r["name"]) for r in rows}
+
+
+def _pending_proposal_names() -> set[str]:
+    """Normalised names of proposals already sitting in the approval queue, so a
+    second discovery run doesn't enqueue the same event twice."""
+    names: set[str] = set()
+    for p in list_pending_proposals(limit=500):
+        if p.get("name"):
+            names.add(_norm_conf_name(p["name"]))
+    return names
+
+
+def _proposal_is_upcoming(start: Optional[str], today: date) -> bool:
+    """DEFECT 11: only keep events dated today-or-future.
+
+    Accepts YYYY-MM-DD or YYYY-MM. A YYYY-MM is treated as the last day of that
+    month so a current-month event isn't dropped. Undated proposals are kept
+    (we can't prove they're stale) but year-only/obviously-past ones are dropped.
+    """
+    if not start:
+        return True  # undated: can't disprove; let the human decide
+    s = str(start).strip()
+    m = re.match(r"^(\d{4})-(\d{2})(?:-(\d{2}))?$", s)
+    if not m:
+        return True  # unparseable: don't silently drop
+    y, mo, d = int(m.group(1)), int(m.group(2)), m.group(3)
+    if d:
+        try:
+            return date(y, mo, int(d)) >= today
+        except ValueError:
+            return True
+    # YYYY-MM -> compare end of month
+    return (y, mo) >= (today.year, today.month)
 
 
 DISCOVERY_SYSTEM = (
@@ -88,11 +155,28 @@ def discover_conferences(*,
             except json.JSONDecodeError:
                 pass
 
-    # Persist each proposal to feedback (id is the round-tripped pk)
+    # Filter the model's proposals before persisting:
+    #   DEFECT 9  — drop anything already in the conferences table (normalised
+    #               name match) or already queued as a pending proposal.
+    #   DEFECT 11 — drop stale / past-dated events (only today-or-future).
+    today = _today()
+    known = _existing_conference_names() | _pending_proposal_names()
+    skipped_dupe = 0
+    skipped_stale = 0
+    seen_this_run: set[str] = set()
+
     saved: list[dict] = []
-    for p in proposals[:max_results]:
+    for p in proposals:
         if not isinstance(p, dict) or not p.get("name"):
             continue
+        norm = _norm_conf_name(p["name"])
+        if norm in known or norm in seen_this_run:
+            skipped_dupe += 1
+            continue
+        if not _proposal_is_upcoming(p.get("start_date"), today):
+            skipped_stale += 1
+            continue
+        seen_this_run.add(norm)
         proposal_id = "disc_" + uuid.uuid4().hex[:14]
         db.log_feedback(
             decision_kind="conference_discovery_proposal",
@@ -103,12 +187,71 @@ def discover_conferences(*,
             decided_by="discovery_agent",
         )
         saved.append({"proposal_id": proposal_id, **p})
+        if len(saved) >= max_results:
+            break
 
     return {
         "proposals": saved,
         "citations": citations,
         "raw_text_preview": text[:500],
+        "skipped_duplicates": skipped_dupe,
+        "skipped_stale": skipped_stale,
     }
+
+
+# ---------------------------------------------------------------------------
+# Region / attendance derivation for approved discoveries (DEFECT 10)
+# ---------------------------------------------------------------------------
+# Country -> Grain scoring region (NA / EU / APAC / MEA / LATAM). Same buckets
+# the geo_cost_efficiency factor weights. Not exhaustive; unknown -> None and the
+# factor falls back to its neutral default rather than mis-classifying.
+_COUNTRY_REGION = {
+    # North America
+    "united states": "NA", "usa": "NA", "us": "NA", "canada": "NA", "mexico": "LATAM",
+    # Europe
+    "united kingdom": "EU", "uk": "EU", "ireland": "EU", "germany": "EU",
+    "netherlands": "EU", "belgium": "EU", "luxembourg": "EU", "france": "EU",
+    "switzerland": "EU", "spain": "EU", "portugal": "EU", "italy": "EU",
+    "greece": "EU", "sweden": "EU", "norway": "EU", "denmark": "EU",
+    "finland": "EU", "poland": "EU", "czechia": "EU", "czech republic": "EU",
+    "hungary": "EU", "romania": "EU", "bulgaria": "EU", "austria": "EU",
+    "estonia": "EU", "lithuania": "EU", "latvia": "EU",
+    # APAC
+    "singapore": "APAC", "malaysia": "APAC", "thailand": "APAC",
+    "indonesia": "APAC", "vietnam": "APAC", "philippines": "APAC",
+    "japan": "APAC", "south korea": "APAC", "china": "APAC", "taiwan": "APAC",
+    "hong kong": "APAC", "india": "APAC", "australia": "APAC",
+    "new zealand": "APAC",
+    # MEA
+    "uae": "MEA", "united arab emirates": "MEA", "saudi arabia": "MEA",
+    "qatar": "MEA", "bahrain": "MEA", "egypt": "MEA", "israel": "MEA",
+    "south africa": "MEA", "kenya": "MEA", "nigeria": "MEA",
+    # LATAM
+    "brazil": "LATAM", "argentina": "LATAM", "colombia": "LATAM",
+    "chile": "LATAM", "peru": "LATAM",
+}
+
+
+def _region_for_country(country: Optional[str]) -> Optional[str]:
+    if not country:
+        return None
+    return _COUNTRY_REGION.get(country.strip().lower())
+
+
+# Conservative attendance fallback by format when the proposal omits it. These
+# are deliberately modest so we never inflate a discovered event's reachability
+# score; the human can correct the figure on review.
+_ATTENDANCE_BY_FORMAT = {
+    "expo": 5000, "trade_show": 5000, "festival": 8000, "forum": 1200,
+    "summit": 1500, "conference": 1000, "leadership": 300,
+    "webinar": 0, "virtual": 0,
+}
+
+
+def _estimate_attendance(fmt: Optional[str]) -> Optional[int]:
+    if not fmt:
+        return 1000
+    return _ATTENDANCE_BY_FORMAT.get(fmt.strip().lower().replace(" ", "_"), 1000)
 
 
 # ---------------------------------------------------------------------------
@@ -170,21 +313,36 @@ def approve_proposal(proposal_id: str, *, decided_by: str = "ui") -> dict:
     except (json.JSONDecodeError, TypeError):
         payload = {}
 
+    # DEFECT 10: previously only name/date/city/country/vertical were carried
+    # through, so region / format / estimated_attendance fell back to defaults
+    # and three scoring factors (geo_cost_efficiency, reachability,
+    # buyer_reachability) degraded. Derive/carry them so an approved discovery
+    # scores on the same footing as a seeded event.
+    region = (payload.get("region") or _region_for_country(payload.get("country")) or "")
+    region = region.upper() or None
+    fmt = payload.get("format") or "conference"   # sensible default open format
+    attendance = payload.get("estimated_attendance")
+    if attendance in (None, "", 0):
+        attendance = _estimate_attendance(fmt)
+
     new_id = "c_disc_" + uuid.uuid4().hex[:12]
     conn = db.get_conn()
     try:
         conn.execute(
-            "INSERT INTO conferences (id, name, start_date, city, country, "
-            "vertical, estimated_attendance, website, themes, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO conferences (id, name, start_date, city, country, region, "
+            "format, vertical, estimated_attendance, website, themes, "
+            "created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 new_id,
                 payload.get("name") or "Unknown",
                 payload.get("start_date"),
                 payload.get("city"),
                 payload.get("country"),
+                region,
+                fmt,
                 payload.get("vertical"),
-                payload.get("estimated_attendance"),
+                attendance,
                 payload.get("source_url"),
                 payload.get("why_relevant"),
                 db.now_iso(), db.now_iso(),

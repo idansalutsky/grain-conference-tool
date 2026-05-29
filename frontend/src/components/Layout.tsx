@@ -5,6 +5,7 @@ import { Link, useLocation } from "react-router-dom";
 // keep the tab lit (e.g. Events stays active on the Find-new sub-page).
 const TABS = [
   { to: "/today", label: "Dashboard", match: ["/today"] },
+  { to: "/brain", label: "Brain", match: ["/brain"] },
   { to: "/conferences", label: "Events", match: ["/conferences", "/discovery"] },
   { to: "/planning", label: "Calendar", match: ["/planning"] },
   { to: "/capture", label: "Capture", match: ["/capture"] },

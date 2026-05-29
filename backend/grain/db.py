@@ -365,9 +365,29 @@ def log_feedback(
                 reason, decided_by, now_iso(),
             ),
         )
-        return int(cur.lastrowid)
+        feedback_id = int(cur.lastrowid)
     finally:
         conn.close()
+
+    # FEEDBACK → BRAIN learning loop. Fold this human decision into the brain
+    # as ONE compressed knowledge item (right space, provenance feedback:<kind>).
+    # Best-effort: lazy import to dodge import cycles, and NEVER let a brain error
+    # break or slow feedback logging — swallow everything. Cheap by construction
+    # (write_item already prunes + throttles resummarize; unknown kinds no-op).
+    try:
+        from .brain import spaces as _brain_spaces
+        _brain_spaces.ingest_feedback(
+            decision_kind=decision_kind,
+            target_kind=target_kind,
+            target_id=target_id,
+            before_value=before,
+            after_value=after,
+            note=reason,
+        )
+    except Exception:  # noqa: BLE001 - feedback logging must never fail on this
+        pass
+
+    return feedback_id
 
 
 # ---------------------------------------------------------------------------

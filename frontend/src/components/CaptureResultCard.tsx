@@ -79,7 +79,9 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
     ? {
         nudge_active: !!contactQuery.data.nudge_active,
         nudge_text: contactQuery.data.nudge_text,
-        why_suppressed: undefined as string[] | undefined,
+        // The contact endpoint doesn't carry why_suppressed; fall back to the
+        // reason from the original capture nudge if it had one.
+        why_suppressed: initialNudge?.why_suppressed,
       }
     : initialNudge;
   const arc = liveArc;

@@ -36,6 +36,7 @@ const FACTOR_LABEL: Record<string, string> = {
 // re-ranks. The control sits next to its effect, not buried in Settings.
 function ScoringTuner() {
   const qc = useQueryClient();
+  const { push: toast } = useToast();
   const { data } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<any>("/api/settings") });
   const weights = (data?.parameters || []).filter((p: any) => String(p.key).startsWith("scoring."));
   const [vals, setVals] = useState<Record<string, number>>({});
@@ -46,6 +47,7 @@ function ScoringTuner() {
       await api.post("/api/conferences/rescore");
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["conferences"] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   if (weights.length === 0) return null;

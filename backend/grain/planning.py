@@ -32,12 +32,32 @@ def _all_active_conferences() -> list[dict]:
 
 
 def coverage() -> dict:
-    """Per-month conference + persona coverage across the calendar year."""
+    """Per-month conference coverage across a rolling 12-month planning window.
+
+    The window starts at the first day of the current month and spans the next
+    12 months (inclusive of the start month). Events outside that window are
+    excluded so the "year" view is an honest 12 months, not the 17-month
+    2026+2027 sprawl the old "calendar year" label implied (DEFECT P2). The
+    returned `window` makes the scope explicit for the UI.
+    """
+    from datetime import date
+
     confs = _all_active_conferences()
+
+    today = date.today()
+    start_year, start_month = today.year, today.month
+    # 12 inclusive months: e.g. start 2026-05 -> through 2027-04.
+    end_index = (start_year * 12 + (start_month - 1)) + 11
+    end_year, end_month = divmod(end_index, 12)
+    end_month += 1
+    window_start = f"{start_year:04d}-{start_month:02d}"
+    window_end = f"{end_year:04d}-{end_month:02d}"
+
     by_month: dict[str, dict] = defaultdict(
         lambda: {"month": "", "n_conferences": 0, "by_tier": {"A": 0, "B": 0, "C": 0},
                  "by_region": defaultdict(int), "total_attendance": 0})
 
+    n_in_window = 0
     for c in confs:
         d = c.get("start_date")
         if not d:
@@ -46,6 +66,11 @@ def coverage() -> dict:
             month_key = d[:7]  # YYYY-MM
         except Exception:
             continue
+        # Restrict to the rolling 12-month window (string compare is safe for
+        # zero-padded YYYY-MM keys).
+        if not (window_start <= month_key <= window_end):
+            continue
+        n_in_window += 1
         slot = by_month[month_key]
         slot["month"] = month_key
         slot["n_conferences"] += 1
@@ -57,7 +82,12 @@ def coverage() -> dict:
     months = sorted(by_month.values(), key=lambda x: x["month"])
     for m in months:
         m["by_region"] = dict(m["by_region"])
-    return {"months": months, "n_total": len(confs)}
+    return {
+        "months": months,
+        "n_total": n_in_window,            # events within the 12-month window
+        "n_total_all": len(confs),         # all dated events in the DB
+        "window": {"start": window_start, "end": window_end, "months": 12},
+    }
 
 
 # ---------------------------------------------------------------------------

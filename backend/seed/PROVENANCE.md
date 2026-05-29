@@ -4,14 +4,33 @@ The seed is **real, publicly-sourced data** — not hand-typed fixtures. The bri
 allowed "a sample conference database from publicly available information"; this
 is that, built from real scraping + verification.
 
-## `conferences.json` — 89 events (after dedupe + cross-year cleanup)
-- Compiled from public event calendars (paytech.events and conference org sites)
-  plus curated anchors Grain actually attends (Money20/20, EuroFinance, AFP…).
+## `conferences.json` — 195 events (after dedupe + cross-year cleanup)
+- Compiled from public event calendars (paytech.events, 10times.com) and
+  official conference sites, plus curated anchors Grain actually attends
+  (Money20/20, EuroFinance, AFP…). Spans all brief verticals: payments (65),
+  travel (36), fintech (36), treasury (27), marketplace (18), SaaS (10),
+  crypto/other (3).
 - Fields: name, dates, city/country/region, format, themes (from agendas),
   estimated attendance, pass/booth cost, website, `vertical`, grounded
-  `agenda_summary`, measured `audience_composition_json`, `source_url`.
+  `agenda_summary`, `audience_composition_json`, `source_url`.
 - Conference facts were fact-checked against source pages (dates/locations
-  corrected where the calendar was stale).
+  corrected where the calendar was stale); every event carries a real
+  `source_url` and a real `estimated_attendance` (0 missing).
+
+### Dataset expansion (web-researched real events)
+The original ~89-event base was expanded to **195** by researching real,
+verifiable 2026 events across payments, fintech, treasury, travel and SaaS from
+public sources (10times.com "expected visitors" figures + official sites). Each
+added event is a real, recurring conference with a citable `source_url`.
+**Honest caveat on the added events:** their `estimated_attendance` is the real
+public/marketing figure, but the `audience_composition_json` (the
+`cfo_treasury_finance_pct` that drives ~part of the score) is an **analyst
+estimate** keyed to the event's audience type (treasury/CFO events 60–80%,
+payments 25–40%, fintech 20–35%, travel 8–20%, SaaS/e-commerce 5–15%, crypto
+3–8%), not a measured survey. A handful of clearly-annual events whose 2026
+edition had already passed were rolled forward to their 2026 date and flagged
+"(2026 dates approximate)" in the agenda summary. Nothing was fabricated — every
+event exists.
 
 ### Vertical classification (`vertical` field)
 Every event carries an explicit `vertical` (one of: payments, treasury, travel,
@@ -70,9 +89,14 @@ people are noisy (we measured it).
   **dropped the fabrications and stale roles, corrected titles, attached
   verified LinkedIn URLs**, and tightened to **ICP-fit companies** (travel,
   payments/PSP/cross-border, marketplaces — not generic megacorps/banks/brokers).
-- Result: **~347 people, of which 94 carry `verified = 1`** (a ✓ in the UI) — these
+- Result: **204 people, of which 50 carry `verified = 1`** (a ✓ in the UI) — these
   were confirmed against the live web. The rest are shown as **unverified leads**
-  ("verify before you approach").
+  ("verify before you approach"). The list was further tightened by **dropping
+  Grain's competitors (FX/cross-border firms), retail banks (the FX supply side,
+  not buyers), generic megacorps with no cross-border-platform angle, and
+  no-name conference-speaker noise** — leaving an ICP-true core (travel,
+  payments/PSP, marketplace) where finance/treasury buyers and commercial
+  champions are surfaced first and CEO/"influencer" names are demoted.
 - This verification is itself the **AI-judgment feature**: public attendee data
   goes stale fast, so the tool verifies a target before a rep acts. The same
   approach is packaged open-source as **OpenClay**; in production you'd add a paid

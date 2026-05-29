@@ -429,9 +429,12 @@ def _seed_companies() -> dict:
                        verticals already attached to each person at seed time)
       - account_tier / icp_score / icp_breakdown_json ← companies.score_all()
         (uses the same IcpConfig as the rest of the tool)
-      - domain / logo_url / industry / fx_exposure_hint left NULL here — those
-        require an LLM / web pass (POST /api/companies/enrich/*); the offline
-        seed makes no network calls and stays key-free / deterministic.
+      - domain / logo_url / industry / fx_exposure_hint / why_grain_fit ←
+        companies.seed_enrich_curated(): a grounded, OFFLINE curated map for the
+        recognisable ICP accounts (real domains + specific FX rationale). The
+        long tail keeps a NULL domain (no fabrication) and an honest generic
+        fit line. A later LLM/Sonar pass (POST /api/companies/enrich/*) can
+        still refine these; the seed makes no network calls and is deterministic.
     """
     from grain import companies  # local import: keeps the LLM-touching module
                                  # off the import path unless we're seeding.
@@ -468,10 +471,20 @@ def _seed_companies() -> dict:
     #    which writes account_tier + icp_score + icp_breakdown_json.
     vert = companies.inherit_vertical_from_people()
 
+    # 4. Enrich domain / logo / industry / fx_exposure_hint / why_grain_fit from
+    #    the curated, grounded map (offline & deterministic — no network/LLM).
+    #    Recognisable ICP accounts get real domains + a specific FX rationale;
+    #    the long tail gets an honest generic fit line and a NULL domain (we
+    #    don't fabricate domains). Idempotent: only fills NULL/empty fields.
+    enr = companies.seed_enrich_curated()
+
     result.update({
         "vertical_inherited": vert.get("inherited", 0),
         "vertical_unknown": vert.get("left_unknown", 0),
         "companies_pre_existing": pre_existing,
+        "enriched_curated": enr.get("curated", 0),
+        "enriched_generic": enr.get("generic", 0),
+        "domains_set": enr.get("domains_set", 0),
     })
     return result
 
@@ -493,6 +506,12 @@ def main() -> int:
     # people.company_name and links people.company_id back to the new rows.
     co = _seed_companies()
     print(f"Backfilled companies: {co}")
+    # Seed the Grain Brain long-term memory spaces (ICP / events / gaps /
+    # playbook / relationship). Idempotent; reads the conferences + ICP we just
+    # loaded. Runs LAST so the events/gaps spaces reflect the final conference set.
+    from grain.brain.spaces import seed_brain_spaces  # local import
+    brain_seed = seed_brain_spaces()
+    print(f"Seeded brain spaces: {brain_seed['written']}")
     counts = db.counts()
     print(f"DB now contains: {counts}")
     return 0

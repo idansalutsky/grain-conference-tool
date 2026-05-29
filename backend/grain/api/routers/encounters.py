@@ -172,10 +172,30 @@ def edit_encounter(encounter_id: str, body: EditEncounter) -> dict:
 @router.delete("/{encounter_id}")
 def delete_encounter(encounter_id: str) -> dict:
     """Discard a capture (mistake / junk OCR). Cleans up an orphaned contact
-    and re-cascades the contact if it has other encounters."""
+    and re-cascades the contact if it has other encounters. The delete is
+    reversible via POST /api/encounters/{id}/restore."""
     out = voice.delete_encounter(encounter_id)
     if not out.get("ok"):
         raise HTTPException(404, out.get("error", "encounter not found"))
+    return out
+
+
+@router.post("/{encounter_id}/restore")
+def restore_encounter(encounter_id: str) -> dict:
+    """Undo a delete: bring a just-deleted capture back (and its contact if it
+    was orphan-deleted), then re-resolve + re-cascade."""
+    out = voice.restore_encounter(encounter_id)
+    if not out.get("ok"):
+        raise HTTPException(404, out.get("error", "nothing to restore"))
+    return out
+
+
+@router.post("/restore-last")
+def restore_last_deleted() -> dict:
+    """Undo the most recent delete (LIFO) — the chat '/undo' affordance."""
+    out = voice.restore_last_deleted()
+    if not out.get("ok"):
+        raise HTTPException(404, out.get("error", "nothing to restore"))
     return out
 
 

@@ -24,7 +24,7 @@ What it produces (every arc state + every nudge branch + the hard edge cases):
   Daniel Roth   — TIRE_KICKER, nudge SILENT (by design). 4 events over a year,
                   flat/lukewarm, never a meeting → "listening, never buying."
   Lena Novak    — WARMING + JOB-CHANGE bypass, nudge FIRES. Email+company change
-                  (Acme Pay → Wise), but same LinkedIn handle → merge via
+                  (Acme Pay → Trip.com), but same LinkedIn handle → merge via
                   LinkedIn; promoted into an ICP buyer role (Head of Treasury).
   Tom Becker    — COOLING, nudge SILENT. Took a meeting early, then went quiet.
   Maria Garcia  — REVIEW-NEEDED. Two real people, same name + company, different
@@ -216,13 +216,13 @@ def build() -> None:
              discussed="Manual hedging is getting painful as volume grows.",
              signals=["explicit_pain"], sentiment=4, meeting=False,
              email="lena.novak@acmepay.com", linkedin="linkedin.com/in/lenanovak")
-    _capture(name="Lena Novak", company="Wise", title="Head of Treasury",
-             vertical="payments", when="2026-04-21", conf_like=PLS,
-             discussed="Now Head of Treasury at Wise — owns the FX mandate. "
+    _capture(name="Lena Novak", company="Trip.com", title="Head of Treasury",
+             vertical="travel", when="2026-04-21", conf_like=PLS,
+             discussed="Now Head of Treasury at Trip.com — owns the FX mandate. "
              "Strong fit, wants to evaluate.",
              signals=["explicit_pain", "strong_fit_signal"], sentiment=5,
              meeting=False, linkedin="linkedin.com/in/lenanovak",
-             email="lena.novak@wise.com")
+             email="lena.novak@trip.com")
     _finalize(lena_id)
 
     # 5) Tom Becker — COOLING, nudge silent. Took a meeting early, went quiet.
@@ -253,6 +253,15 @@ def build() -> None:
              vertical="payments", when="2026-04-21", conf_like=PLS,
              discussed="Different Maria at Stripe — payments ops, not treasury.",
              signals=[], sentiment=3, meeting=False, email="m.garcia@stripe.com")
+
+    # The Grain Brain sits ON TOP of these real captures: fold the genuine
+    # contacts/encounters (with the arc verdicts the engine just produced) into
+    # the brain's relationship space. seed_db ran the brain seed BEFORE any
+    # contacts existed, so we (re)sync the relationship space here now that the
+    # real demo contacts are in place. Idempotent.
+    from grain.brain.spaces import sync_relationship_space_from_db  # local import
+    sync = sync_relationship_space_from_db()
+    print(f"Brain relationship sync: {sync}")
 
 
 def report() -> None:

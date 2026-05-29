@@ -303,25 +303,121 @@ def close_capture_session(rep_id: str) -> dict:
     return {"ok": ok, "rep_id": rep_id}
 
 
+# Soft-delete buffer: the last few deleted captures, newest last. A delete is a
+# hard row removal (the table must not surface a deleted encounter), but we keep
+# a full snapshot here so the rep can UNDO a mis-tap. If the contact was the
+# encounter's only one it gets orphan-deleted too — we snapshot it as well so
+# restore brings BOTH back.
+_DELETED_BUFFER: list[dict] = []
+_DELETED_BUFFER_MAX = 50
+
+
 def delete_encounter(encounter_id: str) -> dict:
     """Remove a capture (mistake / junk OCR). Re-cascades the contact if it has
-    other encounters, else deletes the now-orphaned contact."""
+    other encounters, else deletes the now-orphaned contact.
+
+    The deleted encounter (and an orphaned contact, if any) is buffered so it can
+    be brought back with `restore_encounter` / `restore_last_deleted`.
+    """
     conn = db.get_conn()
     try:
         row = conn.execute(
-            "SELECT contact_id FROM encounters WHERE id = ?", (encounter_id,)
+            "SELECT * FROM encounters WHERE id = ?", (encounter_id,)
         ).fetchone()
         if not row:
             return {"ok": False, "error": "encounter_not_found"}
-        contact_id = row["contact_id"]
+        enc_snapshot = dict(row)
+        contact_id = enc_snapshot.get("contact_id")
         conn.execute("DELETE FROM encounters WHERE id = ?", (encounter_id,))
     finally:
         conn.close()
+
+    contact_snapshot = None
+    contact_deleted = False
     if contact_id:
+        contact_snapshot = _contact_row(contact_id)
         remaining = _delete_if_orphan(contact_id)
         if remaining:  # contact still has encounters → its arc/nudge changed
             run_cascade_in_background(contact_id)
-    return {"ok": True, "encounter_id": encounter_id, "contact_id": contact_id}
+        else:
+            contact_deleted = True  # the orphan was removed alongside the enc
+
+    _buffer_deleted(enc_snapshot, contact_snapshot if contact_deleted else None)
+    return {"ok": True, "encounter_id": encounter_id, "contact_id": contact_id,
+            "undo_available": True}
+
+
+def _contact_row(contact_id: str) -> Optional[dict]:
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM contacts WHERE id = ?", (contact_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def _buffer_deleted(enc_snapshot: dict, contact_snapshot: Optional[dict]) -> None:
+    _DELETED_BUFFER.append({"encounter": enc_snapshot, "contact": contact_snapshot})
+    if len(_DELETED_BUFFER) > _DELETED_BUFFER_MAX:
+        del _DELETED_BUFFER[:-_DELETED_BUFFER_MAX]
+
+
+def _reinsert_row(table: str, row: dict) -> None:
+    cols = ", ".join(row.keys())
+    ph = ", ".join("?" * len(row))
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({ph})",
+            tuple(row.values()),
+        )
+    finally:
+        conn.close()
+
+
+def restore_encounter(encounter_id: str) -> dict:
+    """Undo a delete: bring a buffered encounter (and its orphan-deleted contact,
+    if any) back, then re-resolve + re-cascade. Returns ok:false if nothing
+    buffered for that id."""
+    entry = None
+    for i in range(len(_DELETED_BUFFER) - 1, -1, -1):
+        if _DELETED_BUFFER[i]["encounter"].get("id") == encounter_id:
+            entry = _DELETED_BUFFER.pop(i)
+            break
+    if entry is None:
+        return {"ok": False, "error": "nothing_to_restore"}
+    return _apply_restore(entry)
+
+
+def restore_last_deleted() -> dict:
+    """Undo the most recent delete (LIFO). Returns ok:false if the buffer is
+    empty."""
+    if not _DELETED_BUFFER:
+        return {"ok": False, "error": "nothing_to_restore"}
+    return _apply_restore(_DELETED_BUFFER.pop())
+
+
+def _apply_restore(entry: dict) -> dict:
+    enc = entry["encounter"]
+    contact = entry.get("contact")
+    # Restore the orphan-deleted contact first (so the FK target exists), then
+    # the encounter. INSERT OR IGNORE keeps this idempotent if a row reappeared.
+    if contact:
+        _reinsert_row("contacts", contact)
+    # Re-resolution decides the right contact, so drop the stale contact_id and
+    # let resolve_and_attach re-link it (the old contact may be gone/changed).
+    enc_to_insert = dict(enc)
+    enc_to_insert["contact_id"] = None
+    _reinsert_row("encounters", enc_to_insert)
+
+    resolution = entity_resolution.resolve_and_attach(enc["id"])
+    contact_id = resolution.get("contact_id")
+    if contact_id:
+        run_cascade_in_background(contact_id)
+    return {"ok": True, "encounter_id": enc["id"], "contact_id": contact_id,
+            "resolution": resolution, "restored": True}
 
 
 def last_encounter_for_rep(rep_id: str) -> Optional[dict]:
@@ -535,6 +631,38 @@ def run_cascade_in_background(contact_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         log.warning("nudge evaluate failed for %s: %s", contact_id, exc)
         nudge_state = None
+
+    # Feed the genuine field capture into the Grain Brain's relationship space in
+    # real time, once the arc verdict is known (best-effort — never breaks capture).
+    try:
+        from grain.brain import spaces as _brain
+        conn = db.get_conn()
+        try:
+            row = conn.execute(
+                "SELECT c.id, c.primary_name, c.primary_company, c.primary_title, "
+                "c.arc_verdict, c.arc_summary, c.arc_confidence, "
+                "(SELECT COUNT(*) FROM encounters e WHERE e.contact_id = c.id) AS n, "
+                "(SELECT MAX(e.meeting_requested) FROM encounters e "
+                " WHERE e.contact_id = c.id) AS any_meeting "
+                "FROM contacts c WHERE c.id = ?", (contact_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is not None:
+            r = dict(row)
+            _brain.ingest_encounter({
+                "contact_id": r.get("id"),
+                "primary_name": r.get("primary_name"),
+                "primary_company": r.get("primary_company"),
+                "primary_title": r.get("primary_title"),
+                "arc_verdict": r.get("arc_verdict"),
+                "arc_summary": r.get("arc_summary"),
+                "arc_confidence": r.get("arc_confidence"),
+                "encounter_count": int(r.get("n") or 0),
+                "meeting_requested": bool(r.get("any_meeting")),
+            })
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brain ingest failed for %s: %s", contact_id, exc)
 
     return {"ok": True, "contact_id": contact_id,
             "arc": verdict_dict, "nudge": nudge_state}

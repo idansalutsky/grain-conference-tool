@@ -52,12 +52,33 @@ def test_warming_with_two_encounters_no_meeting_fires():
     assert out["nudge_text"]
 
 
-def test_warming_but_already_meeting_suppressed():
+def test_warming_meeting_requested_not_booked_nudges_to_confirm():
+    """A meeting that was REQUESTED but not confirmed/booked is the hottest
+    lead — it must still surface a nudge ('confirm the meeting / lock the
+    time'), NOT go silent. (Previously this was wrongly suppressed.)"""
     cid = _seed_contact_and_encounters(
         arc="warming", arc_conf=0.85,
         encounters=[
             {"captured_at": "2026-03-01T00:00:00+00:00", "sentiment": 4,
              "meeting_requested": True, "structured": {"company": "Acme"}},
+            {"captured_at": "2026-05-15T00:00:00+00:00", "sentiment": 5,
+             "structured": {"company": "Acme"}},
+        ],
+    )
+    out = nudge.evaluate(cid)
+    assert out["nudge_active"] is True
+    assert out["meeting_to_confirm"] is True
+    assert "confirm the meeting" in out["nudge_text"].lower()
+
+
+def test_warming_meeting_booked_suppressed():
+    """A CONFIRMED/booked meeting genuinely needs no nudge — stay silent."""
+    cid = _seed_contact_and_encounters(
+        arc="warming", arc_conf=0.85,
+        encounters=[
+            {"captured_at": "2026-03-01T00:00:00+00:00", "sentiment": 4,
+             "meeting_requested": True, "structured": {"company": "Acme"},
+             "soft_signals": ["meeting_booked"]},
             {"captured_at": "2026-05-15T00:00:00+00:00", "sentiment": 5,
              "structured": {"company": "Acme"}},
         ],

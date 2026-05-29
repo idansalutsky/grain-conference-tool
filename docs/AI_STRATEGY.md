@@ -89,6 +89,27 @@ To force the multimodal path everywhere (e.g. a kiosk browser without speech
 recognition), the audio endpoint already accepts the blob; or point
 `OPENROUTER_AUDIO_MODEL` at any audio-capable model ID.
 
+## The higher-altitude framing — the Grain Brain
+
+Everything above is **per-feature AI**: where a model helps inside one screen
+(voice→lead, arc judge, brief, discovery). That answers *"is each AI feature
+justified?"*. It does **not** answer *"how do these add up into memory the team
+can act on?"*.
+
+The **Grain Brain** (`docs/BRAIN.md`) is that higher altitude. It doesn't replace
+this doctrine — it *organizes* it into one loop:
+
+> **CAPTURE** unstructured reality → **FILTER** at a quality gate before anything
+> enters memory → **COMPRESS** into bounded, namespaced memory spaces → **SURFACE
+> / RESEARCH** over that structured memory.
+
+It's a single LangGraph `StateGraph` with a classifier routing inputs to a
+capture chain, a discovery chain (with a human-in-the-loop approval interrupt),
+or a query — over five compressing memory "spaces", with the same `IcpConfig` as
+the source of truth and the same one SQLite file (no new infra). The per-feature
+AI stays exactly as described above; the brain is the orchestration layer that
+turns those independent calls into an evolving, gated, bounded memory.
+
 ## Cost projection (real numbers)
 
 | Scenario | LLM ops / month | $/month |

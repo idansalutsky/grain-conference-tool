@@ -58,6 +58,13 @@ def _fold(s: str) -> str:
     Müller → muller, Søren → soren."""
     if not s:
         return ""
+    # German umlauts transliterate to digraphs (ü→ue, ö→oe, ä→ae), NOT to bare
+    # vowels — do this BEFORE NFKD strips the combining diaeresis, so
+    # "Müller" → "mueller" (matching the explicit "Mueller" spelling).
+    s = (s.replace("ü", "ue").replace("Ü", "Ue")
+          .replace("ö", "oe").replace("Ö", "Oe")
+          .replace("ä", "ae").replace("Ä", "Ae")
+          .replace("ß", "ss"))
     nfkd = unicodedata.normalize("NFKD", s)
     ascii_only = "".join(c for c in nfkd if not unicodedata.combining(c))
     ascii_only = ascii_only.replace("ø", "o").replace("Ø", "o").replace("ß", "ss")
@@ -86,6 +93,23 @@ def _name_similarity(a: str, b: str) -> float:
     b_can = canon(b_toks)
     raw = fuzz.token_set_ratio(" ".join(a_toks), " ".join(b_toks)) / 100.0
     can = fuzz.token_set_ratio(" ".join(a_can), " ".join(b_can)) / 100.0
+    return max(raw, can)
+
+
+def _name_similarity_strict(a: str, b: str) -> float:
+    """High-precision name agreement: token_SORT (order- and completeness-
+    sensitive) so a SUBSET/SUPERSET name ('Async Test Person' ⊃ 'Test Person')
+    does NOT score 1.0 the way token_set does. Used as the gate for the
+    cross-company "job change" branch, where a false positive would wrongly link
+    two different people. Nicknames/transliteration still fold via _canon_first."""
+    a_toks = _name_tokens(a)
+    b_toks = _name_tokens(b)
+    if not a_toks or not b_toks:
+        return 0.0
+    a_can = [_canon_first(a_toks[0])] + a_toks[1:]
+    b_can = [_canon_first(b_toks[0])] + b_toks[1:]
+    raw = fuzz.token_sort_ratio(" ".join(a_toks), " ".join(b_toks)) / 100.0
+    can = fuzz.token_sort_ratio(" ".join(a_can), " ".join(b_can)) / 100.0
     return max(raw, can)
 
 
@@ -148,6 +172,18 @@ def _phone_match(a: Optional[str], b: Optional[str]) -> float:
     return 1.0 if da == db_ else 0.0
 
 
+def _title_similarity(a: Optional[str], b: Optional[str]) -> float:
+    """Fuzzy title agreement, 0..1. Returns -1.0 when EITHER side is missing
+    (unknown — not evidence of divergence; the collision guard treats unknown
+    as 'no signal', never as 'diverging')."""
+    na, nb = _fold(a or ""), _fold(b or "")
+    if not na or not nb:
+        return -1.0
+    if na == nb:
+        return 1.0
+    return fuzz.token_set_ratio(na, nb) / 100.0
+
+
 # ---------------------------------------------------------------------------
 # Scoring + decision
 # ---------------------------------------------------------------------------
@@ -165,18 +201,40 @@ def _factor_breakdown(enc: dict, contact_row: dict) -> dict:
         "linkedin_match": _linkedin_match(enc.get("linkedin"), contact_row.get("linkedin_handle")),
         "phone_match": _phone_match(enc.get("phone"), contact_row.get("phone")),
         "name_similarity": _name_similarity(enc.get("name") or "", contact_row.get("primary_name") or ""),
+        "name_similarity_strict": _name_similarity_strict(
+            enc.get("name") or "", contact_row.get("primary_name") or ""),
         "company_similarity": _company_similarity(enc.get("company"), contact_row.get("primary_company")),
+        "title_similarity": _title_similarity(
+            enc.get("title") or enc.get("role"), contact_row.get("primary_title")),
     }
 
 
 def _score_factors(f: dict, *, both_emails_present: bool = False) -> float:
-    """Compose factors into 0..1 confidence with transparent rules."""
+    """Compose factors into 0..1 confidence with transparent rules.
+
+    Identity model (the core of cross-conference tracking):
+      - email / linkedin / phone+name are DECISIVE keys → auto-merge band.
+        A decisive key means "provably the same person" even across a company
+        change, so a job change with a matching email auto-merges.
+      - name + company are SUGGESTIVE only → review band, never a silent
+        auto-merge of two real people who happen to share a name + employer.
+
+    Two opposing failure modes this balances:
+      P0-2  same person, NEW company (job change), no decisive key →
+            must still REACH review (≥ review threshold), not be rejected as a
+            duplicate-creating "different person".
+      P0-3  two DIFFERENT real people, same name + same company, no decisive
+            key, diverging titles → must NOT auto-merge; cap into review.
+    """
     email = f["email_match"]
     li = f["linkedin_match"]
     phone = f.get("phone_match", 0.0)
     name = f["name_similarity"]
+    name_strict = f.get("name_similarity_strict", name)
     comp = f["company_similarity"]
+    title = f.get("title_similarity", -1.0)  # -1.0 == unknown (no signal)
 
+    # --- DECISIVE keys: provable identity, auto-merge even across a job change.
     if email == 1.0 and name >= 0.6:
         return 1.0
     if email == 1.0 and name < 0.6:
@@ -191,20 +249,39 @@ def _score_factors(f: dict, *, both_emails_present: bool = False) -> float:
     if phone == 1.0:
         return 0.75  # phone-only → review band, not auto-merge
 
-    # Two real people, same name + same company + different emails →
-    # cap at review_needed band.
-    if both_emails_present and email == 0.0:
-        if comp >= 0.95 and name >= 0.85:
-            return 0.75
+    # --- No decisive key beyond here. Detect a likely name COLLISION (two real
+    # people): strong name + same company but the OTHER signals diverge. We never
+    # let this auto-merge — cap it into the review band so a human decides.
+    title_diverges = title >= 0.0 and title < 0.55      # known and clearly different
+    emails_diverge = both_emails_present and email == 0.0
+    collision_risk = (comp >= 0.95 and name >= 0.85
+                      and (title_diverges or emails_diverge))
+    if collision_risk:
+        return 0.78  # review band, below auto-merge — route to human
 
+    # --- Same person, NEW company (job change) with no decisive key. A perfect
+    # name match across conferences with a different employer is most likely a
+    # job change, so it must reach REVIEW (not be rejected into a duplicate).
+    # Gate on the STRICT name match: a subset/superset name ("Async Test Person"
+    # ⊃ "Test Person") is NOT a confident same-person and stays out of this band.
+    if name >= 0.85 and name_strict >= 0.9 and comp < 0.5:
+        # Strong title agreement (e.g. "CFO" → "CFO") nudges it up; an unknown
+        # title leaves it mid-review. Range ~0.66..0.80.
+        base = 0.66 + 0.2 * (name - 0.85) / 0.15        # 0.66..0.80 over name
+        if title >= 0.85:
+            base = max(base, 0.80)
+        return min(0.80, base)
+
+    # --- Same company, varying name strength (no divergence detected).
     if comp >= 0.95 and name >= 0.85:
-        return 0.86 + 0.1 * (name - 0.85)  # 0.86..0.91
+        return 0.86 + 0.1 * (name - 0.85)  # 0.86..0.91 → auto-merge
     if comp >= 0.95 and name >= 0.7:
-        return 0.7 + 0.5 * (name - 0.7)    # 0.7..0.78
+        return 0.7 + 0.5 * (name - 0.7)    # 0.7..0.78 → review
     if comp >= 0.95 and name >= 0.55:
         return 0.55 + 0.4 * (name - 0.55)  # 0.55..0.66
+    # Moderate name match, different/unknown company → review at best.
     if name >= 0.9 and comp < 0.5:
-        return 0.4 + 0.2 * (name - 0.9)    # different company → review at best
+        return 0.4 + 0.2 * (name - 0.9)
     return min(0.6, 0.6 * name + 0.4 * comp)
 
 

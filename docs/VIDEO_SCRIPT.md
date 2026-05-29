@@ -1,7 +1,8 @@
 # Video walkthrough — 5-7 minutes
 
 Two of five evaluation axes are sales empathy and communication. The
-demo carries them. The script below is timed for **6 minutes**.
+demo carries them. The script below is timed for **~7 minutes** (drop the Brain
+beat at 5:50 for a tight 6-minute cut).
 
 ---
 
@@ -163,7 +164,50 @@ Switch to the Discovery tab. Pick region = EU. Click "Discover new events".
 
 (I'll show this discovering 3-4 events in ~5 seconds.)
 
-## 5:50 — 6:00 — Pre-event prep + what I'd build next
+## 5:50 — 6:40 — The Grain Brain: the loop behind the features
+
+Switch to the Brain tab.
+
+> "Everything you've seen is per-feature AI. This is the altitude above it — how
+> the messy reality a rep lives in becomes team memory without overflowing. One
+> agent graph, five memory spaces, and a hard quality gate."
+
+Paste an **unstructured note** and run it:
+
+> "Watch it classify. I drop in a raw line — 'great chat with the Head of
+> Treasury at Razorpay, real FX spread pain, wants to talk next week.' The
+> classifier routes it to the **capture** chain — extract, resolve, arc,
+> compress — and the trace shows every node it touched. It doesn't store the
+> transcript; it stores **one compressed insight**, and it lands in the
+> **relationship** space, whose rolling summary just got re-compressed. The brain
+> stays bounded on purpose."
+
+Open the `relationship` space to show the new item + the refreshed summary.
+
+Now run a **discovery prompt** ("find events in LATAM we don't already cover"):
+
+> "Same graph, different route. Discovery **reads memory first** — our ICP, our
+> coverage gaps, and the set of events we already know — so this is gap-targeted
+> and dedupe-aware, not a blind search. It proposes events and then **pauses**:
+> human-in-the-loop. The graph is checkpointed in SQLite, so that pause is
+> durable."
+
+Approve one proposal at the gate:
+
+> "I approve this one. Now the **gate** runs the three checks — is it real, is it
+> ICP-fit, is it new — the competitor lure gets rejected, and only the accepted
+> event is written into the **events** space. Reject always wins; nothing reaches
+> memory without passing the filter *and* a human."
+
+Tie it back:
+
+> "That's why AI is the right tool here. A scraper can dump a list; it can't
+> decide what's worth remembering. The brain captures freeform reality, filters
+> for fit before it pollutes memory, compresses so it never overflows, and
+> answers over structured memory. One coherent loop — and every step is
+> traceable." (Full doctrine in `docs/BRAIN.md`.)
+
+## 6:40 — 6:50 — Pre-event prep + what I'd build next
 
 > "If I had another week:
 > 1. **Year-1 outcome data → real historical_yield**. The 7th factor is the

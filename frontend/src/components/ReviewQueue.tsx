@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useToast, toastErrorMessage } from "@/components/Toast";
 
 interface ReviewItem {
   encounter_id: string;
@@ -31,6 +32,7 @@ interface ReviewItem {
  */
 export function ReviewQueue() {
   const qc = useQueryClient();
+  const { push: toast } = useToast();
   const { data } = useQuery({
     queryKey: ["review-queue"],
     queryFn: () => api.get<{ items: ReviewItem[] }>("/api/review"),
@@ -43,7 +45,9 @@ export function ReviewQueue() {
       qc.invalidateQueries({ queryKey: ["review-queue"] });
       qc.invalidateQueries({ queryKey: ["contacts"] });
       qc.invalidateQueries({ queryKey: ["today"] });
+      toast("success", "Matched — encounter attached to contact.");
     },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const reject = useMutation({
@@ -55,7 +59,9 @@ export function ReviewQueue() {
       qc.invalidateQueries({ queryKey: ["review-queue"] });
       qc.invalidateQueries({ queryKey: ["contacts"] });
       qc.invalidateQueries({ queryKey: ["today"] });
+      toast("success", "Rejected — kept as a separate person.");
     },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   const items = data?.items || [];
