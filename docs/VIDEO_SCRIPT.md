@@ -40,14 +40,17 @@ Important nuance to mention:
 > Year-1 data; once we do, it becomes the dominant factor and the others
 > become priors."
 
-Scroll to the event's target list (the strongest moment — real people):
-> "And it doesn't just say *go* — it says *who to find*. This is real scraped
-> data: at Money20/20 Europe the tool surfaces the CFOs of Klarna, Stripe,
-> Revolut, Wise, Mollie. At a travel event like Phocuswright it surfaces the
-> CFOs of Booking Holdings, Trip.com, Hilton, Hyatt — exactly Grain's heavy-FX
-> travel buyers. Each is scored and tagged by buying role: BUYER, the
-> ENTRY_POINT who staffs the booth, the CHAMPION. The rep walks in with a
-> hit-list, not a badge scanner."
+Scroll to the event's target list — and lead with the honesty, because it's the
+strongest AI-judgment story:
+> "It doesn't just say *go* — it says *who to find*. But here's the real story:
+> public attendee data is noisy and stale. When I scraped these, only about a
+> third held up. So I ran an **agent fleet that verifies each target against the
+> live web** — and only the ✓-verified ones are real, confirmed today: the CFOs
+> of Klarna, Trip.com, Coinbase, Adyen; at Phocuswright, the CFOs of Hilton,
+> Hyatt, IHG, TUI. The rest are flagged *unverified — verify before you
+> approach*. That's the AI doing judgment a scraper can't: a rep never walks up
+> to someone who left two years ago. In production you'd back it with Clay or
+> Apollo; the open-source version of this is literally a tool called OpenClay."
 
 ---
 

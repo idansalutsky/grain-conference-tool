@@ -154,6 +154,7 @@ def seed_people() -> int:
                 "persona": persona or p.get("persona"),
                 "persona_weight": float(weight or p.get("persona_weight") or 0.0),
                 "icp_score": p.get("icp_score"),
+                "verified": int(p.get("verified") or 0),
                 "created_at": db.now_iso(),
             }
             # Only insert if the conference_id exists (some seed people point

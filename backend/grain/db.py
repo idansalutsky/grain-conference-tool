@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS people (
     persona         TEXT,           -- BUYER / CHAMPION / PAIN_OWNER / GATEKEEPER / ENTRY_POINT / INFLUENCER
     persona_weight  REAL,
     icp_score       REAL,
+    verified        INTEGER NOT NULL DEFAULT 0,  -- 1 = web-verified by the agent
     created_at      TEXT NOT NULL,
     FOREIGN KEY (conference_id) REFERENCES conferences(id)
 );
@@ -228,6 +229,7 @@ _INCREMENTAL_COLUMNS = [
     ("conferences", "agenda_summary", "TEXT"),
     ("conferences", "audience_composition_json", "TEXT"),
     ("conferences", "source_url", "TEXT"),
+    ("people", "verified", "INTEGER DEFAULT 0"),
 ]
 
 

@@ -36,7 +36,7 @@ via `grain_*` properties.
 | Capability | Live or seed? | How it works |
 |---|---|---|
 | **77 conferences** | **Seed**, scraped-then-cached | Public event data (Money20/20, EuroFinance, Sibos, iFX EXPO, Seamless, Phocuswright…) with date, city, vertical, themes, format, attendance, cost. Deduped (3 same-event-same-year copies merged). Brief explicitly allowed a "sample conference database." |
-| **861 real scraped people** (676 conference-linked, 26 events) | **Seed** (Apify + Sonar) | Real speakers/sponsors/entry-points at ICP companies, classified into 6 personas by title. This powers the per-event "who to approach" list — e.g. Money20/20 Europe surfaces the CFOs of Klarna, Stripe, Revolut, Wise, Mollie; Phocuswright surfaces CFOs of Booking Holdings, Trip.com, TripAdvisor, Hilton, Hyatt. Real names, real heavy-FX companies. |
+| **Target people — agent-verified** (~347, 94 ✓) | **Seed, scraped → agent-verified** | Per-event "who to approach", scraped from public speaker/sponsor/entry-point sources, then **verified against the live web by an agent fleet** — because the raw scrape was only ~⅓ accurate (fabricated/stale CFOs). We dropped the bad, corrected roles, attached LinkedIn URLs, and tightened to ICP-fit companies. ✓-verified = confirmed today (e.g. Klarna/Trip.com/Adyen/Coinbase/Hilton finance leaders); the rest are unverified leads. See `seed/PROVENANCE.md`. |
 | **Reps (sample GTM team)** | **Seed (fictional)** | Sample reps (Jordan Avery, Sofia Marsh, Lukas Berg, Mei Tan, Omar Haddad) — deliberately *not* Grain's real employees; this is a demo. |
 | **6 demo contacts** | **Seed (sample)** | *Fictional* contacts whose histories exercise every arc state + nudge branch + edge case. **Not real people, not scraped.** Built by running 16 sample encounters through the *real* resolver + arc + nudge — the verdicts are engine-produced, not hand-typed. |
 | **Conference scoring + tiering** | **Deterministic** | 7-factor glass-box score with per-factor evidence. Runs with zero LLM calls. |
@@ -46,7 +46,8 @@ via `grain_*` properties.
 | **Voice → structured lead** | **🟢 LIVE (LLM)** | Browser Web Speech API transcribes in-browser (keyless), then one OpenRouter call structures the lead. Fallback: record audio → Gemini multimodal. |
 | **Conference discovery** | **🟢 LIVE (LLM)** | Perplexity Sonar grounded search; returns proposals with real source URLs; HIL approve → auto-scored into the list. |
 | **Approach brief + follow-up draft** | **🟢 LIVE (LLM)** | Sonar for grounded trigger-news + Gemini synthesis, tied to Grain's value prop. |
-| **Plan-my-prep agent** | **🟢 LIVE (LLM)** | Real tool-calling loop (selects targets, reuses/generates briefs, flags competitors), streamed over SSE. The one agentic feature — justified because pre-event prep needs *selective* judgment. |
+| **Plan-my-prep agent** | **🟢 LIVE (LLM)** | Real tool-calling loop (selects targets, reuses/generates briefs, flags competitors), streamed over SSE. Justified because pre-event prep needs *selective* judgment. |
+| **Target verification (agent fleet)** | **🟢 LIVE (agents)** | One agent per target → web search → confirmed/wrong-role/left/not-found + corrections + LinkedIn URL. Caught that the raw scrape was ~⅓ accurate; keeps the ✓-verified, drops fabrications. AI judgment is the right tool: public data goes stale, so verify before a rep acts. (Open-source pattern: OpenClay; production: Clay/Apollo waterfall.) |
 | **HubSpot push** | Dry-run by default; live with token | Real API (upsert by email); 7 `grain_*` properties carry the arc verdict, nudge, follow-up. |
 | **Telegram capture** | Bot + per-rep binding built; optional | Off the critical path (needs a public webhook URL). |
 

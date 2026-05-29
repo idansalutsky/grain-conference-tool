@@ -12,21 +12,32 @@ is that, built from real scraping + verification.
 - Conference facts were fact-checked against source pages (dates/locations
   corrected where the calendar was stale).
 
-## `people.json` — 861 real people (676 linked to 26 events)
-Three public, high-signal sources, classified into the 6-persona buying
-committee by title:
-- **Speakers** — scraped from public conference agendas/speaker pages.
-- **Sponsors / exhibitors** — public company lists.
-- **Entry-points** — BD / partnerships / sales contacts at the heavy-FX ICP
-  companies (Booking, Adyen, Amadeus, Maersk, Hotelbeds, Expedia, Klarna,
-  Mollie, Wise, Stripe, …), found via grounded web search (Perplexity Sonar)
-  and LinkedIn profile search (Apify `harvestapi/linkedin-profile-search`).
-- Each person carries an `icp_score` and persona so the per-event "who to
-  approach" list ranks by buying influence.
+## `people.json` — ICP-fit targets, agent-verified
+The per-event "who to approach" list, sourced from public speaker/sponsor/
+entry-point scrapes — then **agent-verified**, because raw scraped + LLM-extracted
+people are noisy (we measured it).
+
+**Be honest about this — it's the most important caveat:**
+- The raw scrape blended real public people with **fabricated / stale
+  attributions** (e.g. a name correctly at a company but with the wrong title,
+  or a plausible-but-invented CFO for a private company). When we verified a
+  sample against the live web, **only ~⅓ were accurate.**
+- So we ran an **agentic verification pass** (one agent per target → web search →
+  *confirmed / wrong-role / left-company / not-found*, with corrections). We
+  **dropped the fabrications and stale roles, corrected titles, attached
+  verified LinkedIn URLs**, and tightened to **ICP-fit companies** (travel,
+  payments/PSP/cross-border, marketplaces — not generic megacorps/banks/brokers).
+- Result: **~347 people, of which 94 carry `verified = 1`** (a ✓ in the UI) — these
+  were confirmed against the live web. The rest are shown as **unverified leads**
+  ("verify before you approach").
+- This verification is itself the **AI-judgment feature**: public attendee data
+  goes stale fast, so the tool verifies a target before a rep acts. The same
+  approach is packaged open-source as **OpenClay**; in production you'd add a paid
+  waterfall (Clay / Apollo) for work emails + higher coverage.
 
 ## Reps
-Real Grain GTM team members scraped from public LinkedIn (VP North America,
-VP Sales, Head of Sales, Director Fintech, VP Business Development).
+**Fictional sample reps** (Jordan Avery, Sofia Marsh, Lukas Berg, Mei Tan, Omar
+Haddad) — deliberately *not* Grain's real employees. This is a demo.
 
 ## What is NOT scraped (and shouldn't be)
 The **encounters / contacts** in `seed_demo.py` are fictional samples — you

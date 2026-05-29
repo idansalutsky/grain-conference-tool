@@ -193,10 +193,17 @@ export function ConferenceDetailPage() {
           </section>
 
           <section className="card p-4">
-            <div className="flex justify-between items-baseline mb-3">
-              <h2 className="label">Buying committee — discovered targets</h2>
-              <span className="text-xs text-ink-500">{items.length} people</span>
+            <div className="flex justify-between items-baseline mb-1">
+              <h2 className="label">Buying committee — who to approach</h2>
+              <span className="text-xs text-ink-500">
+                {items.filter((p) => p.verified).length} verified · {items.length} total
+              </span>
             </div>
+            <p className="text-xs text-ink-500 mb-3">
+              <span style={{ color: "oklch(0.45 0.11 158)" }}>✓ verified</span> = confirmed
+              against the live web by the agent today. Others are AI-surfaced leads —
+              verify before you approach (public attendee data goes stale fast).
+            </p>
             {order.map((k) => {
               const list = byPersona[k];
               if (!list?.length) return null;
@@ -373,8 +380,18 @@ function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void
   return (
     <div className="flex justify-between items-start text-sm group">
       <div className="flex-1 min-w-0">
-        <div>
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-medium">{p.full_name}</span>
+          {p.verified ? (
+            <span className="text-[0.6rem] font-bold uppercase tracking-wide px-1 py-0.5 rounded"
+                  style={{ color: "oklch(0.45 0.11 158)", background: "oklch(0.95 0.04 158)" }}
+                  title="Verified against the live web by the agent">✓ verified</span>
+          ) : (
+            <span className="text-[0.6rem] uppercase tracking-wide text-ink-500" title="AI-surfaced lead — verify before approaching">unverified</span>
+          )}
+          {p.linkedin_url && (
+            <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-brand text-xs hover:underline" onClick={(e) => e.stopPropagation()}>in↗</a>
+          )}
           <span className="text-ink-500"> — {p.title || "?"}</span>
         </div>
         <div className="text-xs text-ink-500">

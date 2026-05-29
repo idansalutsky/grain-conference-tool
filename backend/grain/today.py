@@ -113,9 +113,9 @@ def _top_targets(conference_id: str, n: int = 3) -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT id, full_name, title, company_name, persona, persona_weight, "
-            "icp_score, vertical FROM people WHERE conference_id = ? "
+            "icp_score, vertical, verified, linkedin_url FROM people WHERE conference_id = ? "
             "AND persona IN ('BUYER','CHAMPION','PAIN_OWNER','ENTRY_POINT') "
-            "ORDER BY persona_weight DESC, icp_score DESC NULLS LAST LIMIT ?",
+            "ORDER BY verified DESC, persona_weight DESC, icp_score DESC NULLS LAST LIMIT ?",
             (conference_id, n),
         ).fetchall()
         out = []
