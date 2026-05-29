@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { TierBadge, PersonaBadge } from "@/components/Badges";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
@@ -28,27 +29,6 @@ export function ConferenceDetailPage() {
     onSuccess: (d) =>
       toast("success", `Generated ${d?.prepared ?? 0} brief${d?.prepared === 1 ? "" : "s"}`),
     onError: (e) => toast("error", toastErrorMessage(e)),
-  });
-
-  // Per-event Telegram bind — generates a connect link that, when redeemed
-  // via /start, marks this conference as the rep's active event. All
-  // subsequent voice memos and texts auto-tag here.
-  const tgBind = useMutation({
-    mutationFn: () =>
-      api.post<any>("/api/telegram/issue-token", {
-        rep_id: "rep-na-01",
-        conference_id: id,
-      }),
-    onError: (e) => toast("error", toastErrorMessage(e)),
-  });
-
-  // Manual fast-set: if the rep is already bound, just flip active_conference
-  const tgFastSet = useMutation({
-    mutationFn: () =>
-      api.put<any>("/api/telegram/active-event", {
-        rep_id: "rep-na-01",
-        conference_id: id,
-      }),
   });
 
   // Agent runner is now a self-contained streaming component (see <AgentRunner />)
@@ -107,62 +87,7 @@ export function ConferenceDetailPage() {
         )}
       </div>
 
-      {/* Per-event Telegram bind — the "I'm here, every memo from now on
-          tags to this event" flow. One tap. */}
-      <section className="card p-4 mb-6 bg-blue-50 border-blue-200">
-        <div className="flex justify-between items-center gap-3 flex-wrap">
-          <div>
-            <h2 className="text-sm font-semibold text-blue-900">
-              📱 Capture FROM the floor — auto-tag to this event
-            </h2>
-            <p className="text-xs text-blue-800 mt-0.5">
-              Generate a one-tap Telegram link. Once you redeem it on your
-              phone, every voice memo + text auto-attributes to{" "}
-              <span className="font-semibold">{c.name}</span> — no
-              dropdown, no typing.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => tgFastSet.mutate()}
-              disabled={tgFastSet.isPending}
-              className="btn-secondary text-xs"
-            >
-              {tgFastSet.isPending
-                ? "Setting…"
-                : tgFastSet.data
-                ? "✓ I'm here"
-                : "Mark as active event"}
-            </button>
-            <button
-              onClick={() => tgBind.mutate()}
-              disabled={tgBind.isPending}
-              className="btn-primary text-xs"
-            >
-              {tgBind.isPending ? "Generating…" : "📱 Get Telegram link"}
-            </button>
-          </div>
-        </div>
-        {tgBind.data && (
-          <div className="mt-3 pt-3 border-t border-blue-200 text-xs">
-            <div className="text-blue-900 font-medium mb-1">
-              Open this on your phone:
-            </div>
-            <a
-              href={tgBind.data.deep_link}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-brand break-all hover:underline"
-            >
-              {tgBind.data.deep_link}
-            </a>
-            <div className="text-blue-800 mt-1">
-              Bot: <span className="font-mono">@{tgBind.data.bot_username || "GrainSales_bot"}</span>
-              {" · "}token is one-time use
-            </div>
-          </div>
-        )}
-      </section>
+      {id && <Coverage conferenceId={id} conferenceName={c.name} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-1 space-y-4">
@@ -289,6 +214,106 @@ export function ConferenceDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Coverage — who's working this event, with a per-rep one-tap Telegram bind.
+// This is the brief's "who covers what" + the field-capture channel, together.
+function Coverage({ conferenceId, conferenceName }: { conferenceId: string; conferenceName: string }) {
+  const { push: toast } = useToast();
+  const qc = useQueryClient();
+  const [links, setLinks] = useState<Record<string, any>>({});
+  const [pick, setPick] = useState("");
+
+  const reps = useQuery({ queryKey: ["reps"], queryFn: () => api.get<{ items: any[] }>("/api/reps") });
+  const cov = useQuery({
+    queryKey: ["coverage", conferenceId],
+    queryFn: () => api.get<{ items: any[] }>("/api/coverage", { query: { conference_id: conferenceId } }),
+  });
+
+  const assigned = cov.data?.items ?? [];
+  const assignedIds = new Set(assigned.map((a) => a.rep_id));
+  const available = (reps.data?.items ?? []).filter((r) => !assignedIds.has(r.id));
+
+  const assign = useMutation({
+    mutationFn: (repId: string) => api.post("/api/coverage", { conference_id: conferenceId, rep_id: repId }),
+    onSuccess: () => { setPick(""); qc.invalidateQueries({ queryKey: ["coverage", conferenceId] }); },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+  const unassign = useMutation({
+    mutationFn: (repId: string) =>
+      api.delete(`/api/coverage?conference_id=${conferenceId}&rep_id=${repId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["coverage", conferenceId] }),
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+  const bind = useMutation({
+    mutationFn: (repId: string) =>
+      api.post<any>("/api/telegram/issue-token", { rep_id: repId, conference_id: conferenceId }),
+    onSuccess: (d, repId) => setLinks((m) => ({ ...m, [repId]: d })),
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  return (
+    <section className="card p-4 sm:p-5 mb-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <div>
+          <h2 className="text-base font-semibold">Coverage</h2>
+          <p className="text-xs text-ink-500 mt-0.5 max-w-[60ch]">
+            Assign who's working <span className="text-ink-700 font-medium">{conferenceName}</span>.
+            Each rep gets a one-tap Telegram link — once redeemed, every memo they
+            send auto-tags to this event. No dropdowns on the floor.
+          </p>
+        </div>
+        {available.length > 0 && (
+          <div className="flex gap-2">
+            <select className="input" value={pick} onChange={(e) => setPick(e.target.value)}>
+              <option value="">Assign a rep…</option>
+              {available.map((r) => (
+                <option key={r.id} value={r.id}>{r.full_name}{r.region ? ` · ${r.region}` : ""}</option>
+              ))}
+            </select>
+            <button className="btn-primary" disabled={!pick || assign.isPending}
+                    onClick={() => pick && assign.mutate(pick)}>Assign</button>
+          </div>
+        )}
+      </div>
+
+      {assigned.length === 0 ? (
+        <div className="text-sm text-ink-500">
+          No one assigned yet. {available.length === 0 && <Link to="/team" className="text-brand hover:underline">Add reps →</Link>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {assigned.map((a) => (
+            <div key={a.rep_id} className="rounded-md border border-ink-200 p-3">
+              <div className="flex items-center gap-2">
+                <div className="grid place-items-center w-8 h-8 rounded-full bg-ink-100 text-ink-700 text-xs font-semibold shrink-0">
+                  {(a.rep_name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("")}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold truncate">{a.rep_name}</div>
+                  <div className="text-[0.65rem] uppercase tracking-wider text-ink-500">{a.rep_region || "—"}</div>
+                </div>
+                <button className="btn-secondary h-8 text-xs" disabled={bind.isPending}
+                        onClick={() => bind.mutate(a.rep_id)}>
+                  {links[a.rep_id] ? "↻ New link" : "📱 Telegram"}
+                </button>
+                <button className="btn-ghost h-8 !px-2 text-ink-500 hover:text-tire" title="Remove from event"
+                        onClick={() => unassign.mutate(a.rep_id)}>✕</button>
+              </div>
+              {links[a.rep_id] && (
+                <div className="mt-2 pt-2 border-t border-ink-100 text-xs">
+                  <div className="text-ink-500 mb-1">Open on {a.rep_name?.split(" ")[0]}'s phone:</div>
+                  <a href={links[a.rep_id].deep_link} target="_blank" rel="noreferrer"
+                     className="text-brand break-all hover:underline">{links[a.rep_id].deep_link}</a>
+                  <div className="text-ink-500 mt-1">@{links[a.rep_id].bot_username || "GrainSales_bot"} · one-time</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

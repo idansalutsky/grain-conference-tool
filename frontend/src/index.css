@@ -3,16 +3,115 @@
 @tailwind utilities;
 
 @layer base {
-  body { font-family: 'Inter', system-ui, sans-serif; }
-  h1, h2, h3 { @apply font-semibold tracking-tight; }
+  :root {
+    color-scheme: light;
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 0.75rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2.5rem;
+  }
+
+  .app-body {
+    @apply bg-paper text-ink-900;
+    font-family: "Hanken Grotesk", system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    /* tabular figures everywhere — scores, dates, money line up */
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: "Bricolage Grotesque", "Hanken Grotesk", sans-serif;
+    @apply tracking-tight text-ink-900;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+
+  /* Editorial masthead title */
+  .masthead {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  ::selection { background: oklch(0.605 0.122 164 / 0.18); }
+
+  *:focus-visible {
+    outline: 2px solid oklch(0.605 0.122 164 / 0.55);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
 }
 
 @layer components {
-  .card { @apply bg-white border border-ink-200 rounded-lg shadow-sm; }
-  .btn { @apply inline-flex items-center justify-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors; }
-  .btn-primary { @apply btn bg-brand text-white hover:bg-emerald-600; }
-  .btn-secondary { @apply btn bg-ink-100 text-ink-700 hover:bg-ink-200 border border-ink-200; }
-  .badge { @apply inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide; }
-  .input { @apply px-2 py-1 rounded border border-ink-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40; }
-  .label { @apply text-xs text-ink-500 uppercase tracking-wider; }
+  /* Surfaces — flat, hairline, editorial. Used sparingly; never nested. */
+  .card {
+    @apply bg-surface border border-ink-200 rounded-card shadow-card;
+  }
+
+  /* Buttons — clear hierarchy: primary (green) is rare; secondary is ghost. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 h-9 rounded-md
+           text-sm font-semibold transition-[background-color,color,box-shadow,transform]
+           duration-150 active:translate-y-px disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-primary { @apply btn text-white shadow-card; background-color: oklch(0.605 0.122 164); }
+  .btn-primary:hover { background-color: oklch(0.52 0.12 164); }
+  .btn-secondary {
+    @apply btn bg-transparent text-ink-700 border border-ink-300 hover:bg-ink-100 hover:border-ink-300;
+  }
+  .btn-ghost { @apply btn bg-transparent text-ink-500 hover:text-ink-900 hover:bg-ink-100; }
+
+  /* Inputs — quiet box, brand focus ring. */
+  .input {
+    @apply px-3 h-9 rounded-md border border-ink-300 bg-surface text-sm text-ink-900
+           placeholder:text-ink-500 focus:outline-none;
+  }
+  .input:focus {
+    border-color: oklch(0.605 0.122 164);
+    box-shadow: 0 0 0 3px oklch(0.605 0.122 164 / 0.22);
+  }
+  textarea.input { @apply h-auto py-2; }
+  select.input { @apply pr-8; }
+
+  .label { @apply text-[0.7rem] font-semibold text-ink-500 uppercase tracking-[0.12em]; }
+
+  /* STAMP — the status primitive. A stamped classification, not a pill.
+     Letterspaced, ruled, monochrome per semantic color. */
+  .stamp {
+    @apply inline-flex items-center gap-1 text-[0.65rem] font-bold uppercase
+           tracking-[0.1em] leading-none px-1.5 py-1 rounded-[3px] border whitespace-nowrap;
+  }
+
+  /* Lightweight chip for inline metadata (sentiment, signals). Colour comes
+     from utility classes on the element; this just sets the shape. */
+  .badge {
+    @apply inline-flex items-center px-1.5 py-0.5 rounded text-[0.65rem]
+           font-semibold tracking-wide;
+  }
+
+  /* Hairline section rule with a label — editorial divider */
+  .rule-label {
+    @apply flex items-center gap-3 text-[0.7rem] font-semibold uppercase
+           tracking-[0.14em] text-ink-500;
+  }
+  .rule-label::after { content: ""; @apply flex-1 h-px bg-ink-200; }
+
+  /* Data table — well-set, not card-soup */
+  .data-row {
+    @apply flex items-center gap-3 py-2.5 border-b border-ink-100 last:border-0;
+  }
+}
+
+@layer utilities {
+  /* Staggered page-load reveal (respects reduced-motion) */
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  .rise { animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @media (prefers-reduced-motion: reduce) {
+    .rise { animation: none; }
+  }
 }

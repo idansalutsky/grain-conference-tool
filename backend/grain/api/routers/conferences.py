@@ -56,6 +56,58 @@ def list_conferences(
     return {"total": total, "count": len(rows), "items": [_row(r) for r in rows]}
 
 
+class ConferenceIn(BaseModel):
+    name: str = Field(..., min_length=2, max_length=200)
+    start_date: Optional[str] = Field(None, description="YYYY-MM-DD")
+    end_date: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = Field(None, description="NA / EU / APAC / MEA / LATAM")
+    vertical: Optional[str] = None
+    format: Optional[str] = Field(None, description="expo / summit / conference / webinar")
+    themes: Optional[str] = None
+    estimated_attendance: Optional[int] = None
+    cost_pass_usd: Optional[float] = None
+    website: Optional[str] = None
+
+
+@router.post("", status_code=201)
+def create_conference(body: ConferenceIn) -> dict:
+    """Manually add an event a non-developer wants to track. It is scored by the
+    same 7-factor model immediately, so it slots into the tiering with no code."""
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "-", body.name.lower()).strip("-")[:48] or "event"
+    cid = f"{slug}-{db.now_iso()[:10]}"
+    payload = {
+        "id": cid, "name": body.name.strip(),
+        "start_date": body.start_date, "end_date": body.end_date or body.start_date,
+        "city": body.city, "country": body.country, "region": (body.region or "").upper() or None,
+        "vertical": body.vertical, "format": body.format, "themes": body.themes,
+        "estimated_attendance": body.estimated_attendance, "cost_pass_usd": body.cost_pass_usd,
+        "website": body.website, "created_at": db.now_iso(), "updated_at": db.now_iso(),
+    }
+    conn = db.get_conn()
+    try:
+        if conn.execute("SELECT 1 FROM conferences WHERE id = ?", (cid,)).fetchone():
+            raise HTTPException(409, "an event with this name+date already exists")
+        cols = ",".join(payload.keys())
+        ph = ",".join("?" * len(payload))
+        conn.execute(f"INSERT INTO conferences ({cols}) VALUES ({ph})", tuple(payload.values()))
+    finally:
+        conn.close()
+    # Score it right away so it appears tiered.
+    s = scoring.score_conference({**payload, "id": cid})
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "UPDATE conferences SET score = ?, tier = ?, score_breakdown_json = ?, updated_at = ? WHERE id = ?",
+            (s.total, s.tier, json.dumps(s.to_breakdown_dict(), ensure_ascii=False), db.now_iso(), cid),
+        )
+    finally:
+        conn.close()
+    return {"id": cid, "score": round(s.total, 1), "tier": s.tier}
+
+
 @router.get("/{conference_id}")
 def get_conference(conference_id: str) -> dict:
     conn = db.get_conn()

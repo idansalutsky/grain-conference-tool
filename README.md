@@ -5,10 +5,13 @@ salesperson through their year — **Decide → Plan → Capture → Recognise �
 on a single spine: a contact identity that persists across events.
 
 1. **Decide** which conferences to prioritise — transparent 7-factor ICP-fit scoring + A/B/C tiers
-2. **Plan** team coverage across the year + spot trip clusters and gaps
-3. **Capture** leads in the field — speak or type; the AI structures the lead
+2. **Plan** team coverage across the year + spot trip clusters and gaps; manage the team and assign who covers which event
+3. **Capture** leads in the field — speak or type; the AI structures the lead (in-app or via per-rep Telegram bind)
 4. **Recognise** cross-conference relationships — warming / flat / cooling / tire-kicker
 5. **Act** — calibrated nudges, AI follow-up drafts, and a push to HubSpot that carries the intelligence
+
+Non-developers run it end to end: tune scoring weights (sliders), add an event,
+add a rep, and assign coverage — all no-code in the UI.
 
 > ICP is encoded once (`backend/grain/icp.py`) — travel/booking-led, heavy-FX,
 > finance/treasury buyer — and every feature (event scoring, target ranking,
@@ -78,12 +81,12 @@ python -m backend.seed_demo    # the cross-conference demo: 6 sample contacts, a
 ## Architecture
 
 ```
-Frontend — React + Vite + Tailwind  (Today · Conferences · Planning · Capture ·
-                                      Contacts · Nudges · Discovery · Settings)
+Frontend — React + Vite + Tailwind  (Today · Events · Planning · Capture ·
+                                      Contacts · Nudges · Discovery · Team · Settings)
         │  HTTP / JSON  (frontend calls /api/*)
 Backend — FastAPI + SQLite (one file, no migrations)
         │  scoring · entity-resolution · arc · nudge · brief · voice ·
-        │  planning · discovery · prep-agent
+        │  planning · discovery · prep-agent · reps+coverage
         ├── OpenRouter   (Gemini extraction + Perplexity Sonar discovery)
         ├── HubSpot      (contact push, dry-run without a token)
         └── Telegram     (optional field-capture channel)

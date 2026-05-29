@@ -35,10 +35,7 @@ export function TodayPage() {
     <div className="space-y-4">
       {/* === Hero — active or next event === */}
       {hasEvent ? (
-        <section className={
-          "card p-5 border-l-4 " +
-          (ev.is_active_now ? "border-emerald-500" : "border-brand")
-        }>
+        <section className="card p-5" style={ev.is_active_now ? { background: "oklch(0.97 0.03 158)", borderColor: "oklch(0.84 0.07 158)" } : undefined}>
           <div className="flex justify-between items-start gap-3">
             <div className="flex-1">
               <div className="text-xs uppercase tracking-wider text-ink-500 mb-1">
@@ -159,9 +156,9 @@ export function TodayPage() {
                     <span className="font-medium truncate">{s.name || "?"}</span>
                   )}
                   <span className="text-ink-500 truncate">@ {s.company || "?"}</span>
-                  {c.meeting_requested && (
-                    <span className="badge bg-emerald-100 text-emerald-800 ml-auto shrink-0">📅</span>
-                  )}
+                  {c.meeting_requested ? (
+                    <span className="stamp ml-auto shrink-0" style={{ color: "oklch(0.42 0.09 158)", background: "oklch(0.95 0.03 158)", borderColor: "oklch(0.86 0.05 158)" }}>meeting</span>
+                  ) : null}
                 </div>
               );
             })}

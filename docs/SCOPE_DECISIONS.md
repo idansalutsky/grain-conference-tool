@@ -27,6 +27,7 @@ to "the five criteria are connected" — they all read from one object.
 | Cross-conference resolution + arc interpretation + calibrated nudge | #5 | Done — the hardest part; see `CROSS_CONFERENCE.md` |
 | AI features, each justified | #6 | voice→lead, arc summariser, conference discovery, approach-brief, selective prep agent |
 | HubSpot push carrying `grain_*` intelligence (+ dry-run) | #7 | Done — the judgment travels with the contact |
+| Team & coverage admin — add reps, create events, assign "who covers what" | Business problem + "non-dev can update" | Done — each assignment has a one-tap per-rep Telegram bind |
 | BYO keys, one-file SQLite, Vercel+Render deploy | Constraints | Done — nothing hardcoded |
 
 ## Deliberately cut or demoted (the discipline)

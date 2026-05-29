@@ -41,6 +41,7 @@ via `grain_*` properties.
 | **6 demo contacts** | **Seed (sample)** | *Fictional* contacts whose histories exercise every arc state + nudge branch + edge case. **Not real people, not scraped.** Built by running 16 sample encounters through the *real* resolver + arc + nudge — the verdicts are engine-produced, not hand-typed. |
 | **Conference scoring + tiering** | **Deterministic** | 7-factor glass-box score with per-factor evidence. Runs with zero LLM calls. |
 | **Planning (coverage/clusters/gaps)** | **Deterministic** | Geo+temporal clustering with travel-saving estimate. No LLM. |
+| **Team & coverage admin** | **No-code UI** | Add reps, create events, assign who covers what — each assignment carries a one-tap per-rep Telegram bind. Satisfies "a non-developer can update this." |
 | **Entity resolution + arc + nudge** | Deterministic core (+ optional LLM arc judge) | The cross-conference spine. Runs from seeded data; the LLM judge only *lifts confidence* when it agrees. |
 | **Voice → structured lead** | **🟢 LIVE (LLM)** | Browser Web Speech API transcribes in-browser (keyless), then one OpenRouter call structures the lead. Fallback: record audio → Gemini multimodal. |
 | **Conference discovery** | **🟢 LIVE (LLM)** | Perplexity Sonar grounded search; returns proposals with real source URLs; HIL approve → auto-scored into the list. |

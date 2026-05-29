@@ -1,43 +1,68 @@
-const TIER_STYLE: Record<string, string> = {
-  A: "bg-emerald-100 text-emerald-800 border border-emerald-200",
-  B: "bg-amber-100 text-amber-800 border border-amber-200",
-  C: "bg-ink-100 text-ink-500 border border-ink-200",
+// Status as stamped classifications (see .stamp in index.css), not pills.
+// Each uses a single semantic hue via inline OKLCH so tints stay perceptually even.
+
+const TIER: Record<string, { c: string; label: string }> = {
+  A: { c: "164", label: "Tier A" }, // brand green — priority
+  B: { c: "245", label: "Tier B" }, // cool blue — solid
+  C: { c: "62", label: "Tier C" },  // muted — low priority
 };
+
+function stampStyle(hue: string, muted = false): React.CSSProperties {
+  const L = muted ? 0.55 : 0.42;
+  const C = muted ? 0.02 : 0.09;
+  return {
+    color: `oklch(${L} ${C} ${hue})`,
+    backgroundColor: `oklch(0.97 ${muted ? 0.006 : 0.03} ${hue})`,
+    borderColor: `oklch(0.86 ${muted ? 0.01 : 0.05} ${hue})`,
+    // ring uses the same hue, set via boxShadow to avoid tailwind ring color
+    boxShadow: `inset 0 0 0 1px oklch(0.9 ${muted ? 0.008 : 0.04} ${hue})`,
+  };
+}
 
 export function TierBadge({ tier }: { tier?: string | null }) {
   const t = (tier || "C").toUpperCase();
-  return <span className={`badge ${TIER_STYLE[t] || TIER_STYLE.C}`}>Tier {t}</span>;
+  const def = TIER[t] || TIER.C;
+  return (
+    <span className="stamp" style={stampStyle(def.c, t === "C")}>
+      {def.label}
+    </span>
+  );
 }
 
-const ARC_STYLE: Record<string, { bg: string; emoji: string }> = {
-  warming:     { bg: "bg-emerald-100 text-emerald-800 border border-emerald-200", emoji: "📈" },
-  flat:        { bg: "bg-ink-100 text-ink-700 border border-ink-200", emoji: "▫️" },
-  cooling:     { bg: "bg-blue-100 text-blue-800 border border-blue-200", emoji: "📉" },
-  tire_kicker: { bg: "bg-orange-100 text-orange-800 border border-orange-200", emoji: "⚠️" },
+const ARC: Record<string, { c: string; muted?: boolean }> = {
+  warming: { c: "158" },
+  flat: { c: "160", muted: true },
+  cooling: { c: "245" },
+  tire_kicker: { c: "62" },
 };
 
 export function ArcBadge({ kind }: { kind?: string | null }) {
-  if (!kind) return <span className="badge bg-ink-100 text-ink-500">No arc</span>;
-  const s = ARC_STYLE[kind] || ARC_STYLE.flat;
+  if (!kind) return <span className="stamp" style={stampStyle("160", true)}>no read</span>;
+  const s = ARC[kind] || ARC.flat;
   return (
-    <span className={`badge ${s.bg}`}>
-      <span className="mr-1">{s.emoji}</span>
+    <span className="stamp" style={stampStyle(s.c, s.muted)}>
       {kind.replace("_", "-")}
     </span>
   );
 }
 
-const PERSONA_STYLE: Record<string, string> = {
-  BUYER:       "bg-emerald-100 text-emerald-800",
-  CHAMPION:    "bg-cyan-100 text-cyan-800",
-  PAIN_OWNER:  "bg-purple-100 text-purple-800",
-  GATEKEEPER:  "bg-rose-100 text-rose-800",
-  ENTRY_POINT: "bg-amber-100 text-amber-800",
-  INFLUENCER:  "bg-blue-100 text-blue-800",
+// Personas: ordered by buying influence; BUYER is brand-green, others stay quiet
+// so the committee reads as a hierarchy, not a rainbow.
+const PERSONA: Record<string, { c: string; muted?: boolean }> = {
+  BUYER: { c: "164" },
+  CHAMPION: { c: "245" },
+  PAIN_OWNER: { c: "300" },
+  ENTRY_POINT: { c: "62" },
+  GATEKEEPER: { c: "20", muted: true },
+  INFLUENCER: { c: "160", muted: true },
 };
 
 export function PersonaBadge({ persona }: { persona?: string | null }) {
   if (!persona) return null;
-  const style = PERSONA_STYLE[persona] || "bg-ink-100 text-ink-700";
-  return <span className={`badge ${style}`}>{persona.replace("_", " ")}</span>;
+  const s = PERSONA[persona] || { c: "160", muted: true };
+  return (
+    <span className="stamp" style={stampStyle(s.c, s.muted)}>
+      {persona.replace("_", " ")}
+    </span>
+  );
 }

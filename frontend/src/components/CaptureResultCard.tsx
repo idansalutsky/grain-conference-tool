@@ -69,8 +69,8 @@ export function CaptureResultCard({ result }: Props) {
   });
 
   return (
-    <div className="card p-5 mt-4 border-l-4 border-brand">
-      <div className="label mb-1">Captured</div>
+    <div className="card p-5 mt-4" style={{ background: "oklch(0.98 0.02 158)", borderColor: "oklch(0.85 0.06 158)" }}>
+      <div className="label mb-1" style={{ color: "oklch(0.45 0.1 158)" }}>Captured</div>
       <div className="font-semibold text-lg">
         {s.name || "?"}
         <span className="text-ink-500 font-normal"> — {s.title || "?"}</span>

@@ -186,6 +186,18 @@ CREATE INDEX IF NOT EXISTS idx_companies_norm ON companies(name_normalized);
 CREATE INDEX IF NOT EXISTS idx_companies_tier ON companies(account_tier);
 CREATE INDEX IF NOT EXISTS idx_companies_score ON companies(icp_score DESC);
 CREATE INDEX IF NOT EXISTS idx_companies_prospect ON companies(is_prospect, approved);
+
+CREATE TABLE IF NOT EXISTS coverage (
+    id              TEXT PRIMARY KEY,
+    conference_id   TEXT NOT NULL,
+    rep_id          TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    UNIQUE(conference_id, rep_id),
+    FOREIGN KEY (conference_id) REFERENCES conferences(id),
+    FOREIGN KEY (rep_id) REFERENCES reps(id)
+);
+CREATE INDEX IF NOT EXISTS idx_coverage_conf ON coverage(conference_id);
+CREATE INDEX IF NOT EXISTS idx_coverage_rep ON coverage(rep_id);
 """
 
 

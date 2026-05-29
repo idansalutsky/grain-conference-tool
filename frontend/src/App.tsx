@@ -11,6 +11,7 @@ import { NudgesPage } from "./pages/Nudges";
 import { SettingsPage } from "./pages/Settings";
 import { DiscoveryPage } from "./pages/Discovery";
 import { CompanyDetailPage } from "./pages/CompanyDetail";
+import { TeamPage } from "./pages/Team";
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
         <Route path="/contacts/:id" element={<ContactDetailPage />} />
         <Route path="/nudges" element={<NudgesPage />} />
         <Route path="/discovery" element={<DiscoveryPage />} />
+        <Route path="/team" element={<TeamPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>

@@ -97,7 +97,7 @@ export function ContactDetailPage() {
             </div>
             <div className="space-y-3 mt-3">
               {c.encounters?.map((e: any) => (
-                <div key={e.id} className="border-l-2 border-ink-200 pl-3">
+                <div key={e.id} className="border-l border-ink-200 pl-3">
                   <div className="text-xs text-ink-500 font-mono">
                     {e.captured_at?.slice(0, 10)} · {e.capture_mode}
                     {e.conference_id && <> · {e.conference_id}</>}
@@ -106,9 +106,9 @@ export function ContactDetailPage() {
                     {e.structured?.what_discussed || e.raw_input?.slice(0, 200) || "—"}
                   </div>
                   <div className="flex gap-1 mt-1 flex-wrap">
-                    {e.meeting_requested && (
+                    {e.meeting_requested ? (
                       <span className="badge bg-emerald-100 text-emerald-800">meeting requested</span>
-                    )}
+                    ) : null}
                     {e.sentiment != null && (
                       <span className="badge bg-ink-100 text-ink-700">sentiment {e.sentiment}/5</span>
                     )}
@@ -170,12 +170,12 @@ export function ContactDetailPage() {
             </button>
           </section>
 
-          {c.nudge_active && (
-            <section className="card p-4 border-l-4 border-amber-500">
-              <h2 className="label mb-2">💡 Active nudge</h2>
+          {c.nudge_active ? (
+            <section className="card p-4" style={{ background: "oklch(0.97 0.03 62)", borderColor: "oklch(0.86 0.06 62)" }}>
+              <h2 className="label mb-2" style={{ color: "oklch(0.45 0.1 62)" }}>Active nudge</h2>
               <div className="text-sm text-ink-700">{c.nudge_text}</div>
             </section>
-          )}
+          ) : null}
 
           <section className="card p-4 space-y-2">
             <h2 className="label">Actions</h2>

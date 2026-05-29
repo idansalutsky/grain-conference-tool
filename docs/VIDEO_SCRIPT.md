@@ -68,6 +68,15 @@ Then gaps:
 > "And we flag tier-A events with zero rep encounters. That's not a
 > 'recommendation' — it's a question. Why aren't we covering this?"
 
+Open an event → the Coverage block (and the Team tab):
+
+> "This is the 'who covers what' from the brief. On any event I assign reps —
+> here Marc, Diana and Ben are on Money20/20 Europe — and each gets a one-tap
+> Telegram link. The rep redeems it once on their phone, and from then on every
+> voice memo they send auto-tags to this event. The Team tab is the no-code
+> admin: a non-developer adds reps, creates events, and assigns coverage — no
+> code, which is exactly what the brief asked for."
+
 ---
 
 ## 2:30 — 4:00 — EXECUTE: field capture (the hero feature)

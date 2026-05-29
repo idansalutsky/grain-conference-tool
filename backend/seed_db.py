@@ -259,6 +259,35 @@ def backfill_attendance() -> int:
         conn.close()
 
 
+def _seed_coverage() -> int:
+    """Give each rep a couple of region-matching high-fit events, so the Team
+    and Planning views show real coverage out of the box (idempotent)."""
+    import uuid as _uuid
+    conn = db.get_conn()
+    try:
+        if conn.execute("SELECT COUNT(*) FROM coverage").fetchone()[0] > 0:
+            return 0
+        reps = conn.execute("SELECT id, region FROM reps").fetchall()
+        n = 0
+        for rep in reps:
+            region = rep["region"]
+            rows = conn.execute(
+                "SELECT id FROM conferences WHERE region = ? AND tier IN ('A','B') "
+                "AND start_date >= '2026-01-01' ORDER BY score DESC LIMIT 2",
+                (region,),
+            ).fetchall()
+            for cf in rows:
+                conn.execute(
+                    "INSERT OR IGNORE INTO coverage (id, conference_id, rep_id, created_at) "
+                    "VALUES (?,?,?,?)",
+                    ("cov_" + _uuid.uuid4().hex[:10], cf["id"], rep["id"], db.now_iso()),
+                )
+                n += 1
+        return n
+    finally:
+        conn.close()
+
+
 def main() -> int:
     db.init_db()
     _seed_reps()
@@ -270,6 +299,8 @@ def main() -> int:
     print(f"Deduped {n_removed} duplicate conferences; backfilled {n_att} attendance figures")
     n_scored = scoring.rescore_all()
     print(f"Re-scored {n_scored} conferences")
+    n_cov = _seed_coverage()
+    print(f"Seeded {n_cov} coverage assignments")
     counts = db.counts()
     print(f"DB now contains: {counts}")
     return 0
