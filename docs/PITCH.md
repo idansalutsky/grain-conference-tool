@@ -37,7 +37,7 @@ via `grain_*` properties.
 |---|---|---|
 | **77 conferences** | **Seed**, scraped-then-cached | Public event data (Money20/20, EuroFinance, Sibos, iFX EXPO, Seamless, Phocuswright…) with date, city, vertical, themes, format, attendance, cost. Deduped (3 same-event-same-year copies merged). Brief explicitly allowed a "sample conference database." |
 | **861 real scraped people** (676 conference-linked, 26 events) | **Seed** (Apify + Sonar) | Real speakers/sponsors/entry-points at ICP companies, classified into 6 personas by title. This powers the per-event "who to approach" list — e.g. Money20/20 Europe surfaces the CFOs of Klarna, Stripe, Revolut, Wise, Mollie; Phocuswright surfaces CFOs of Booking Holdings, Trip.com, TripAdvisor, Hilton, Hyatt. Real names, real heavy-FX companies. |
-| **Reps = real Grain GTM team** | **Seed** | Chris Day (VP, North America), Marc Padrosa (VP Sales), Eugene Lin (Head of Sales, ex-Expedia), Diana Mihaylova, Ben Strugo — scraped from public LinkedIn. |
+| **Reps (sample GTM team)** | **Seed (fictional)** | Sample reps (Jordan Avery, Sofia Marsh, Lukas Berg, Mei Tan, Omar Haddad) — deliberately *not* Grain's real employees; this is a demo. |
 | **6 demo contacts** | **Seed (sample)** | *Fictional* contacts whose histories exercise every arc state + nudge branch + edge case. **Not real people, not scraped.** Built by running 16 sample encounters through the *real* resolver + arc + nudge — the verdicts are engine-produced, not hand-typed. |
 | **Conference scoring + tiering** | **Deterministic** | 7-factor glass-box score with per-factor evidence. Runs with zero LLM calls. |
 | **Planning (coverage/clusters/gaps)** | **Deterministic** | Geo+temporal clustering with travel-saving estimate. No LLM. |
@@ -64,7 +64,7 @@ audience size. Full derivation in `docs/SCORING.md`.
 | Factor | Weight | Why |
 |---|---|---|
 | Vertical concentration | 0.25 | Does the event centre travel/payments/cross-border/marketplaces? |
-| Buyer density | 0.25 | Do CFO/treasury/payments leaders actually attend? (the Grain-specific lever) |
+| Buyer density | 0.25 | Do CFO/treasury/payments leaders actually attend? **Uses the scraped, measured audience composition** (e.g. EuroFinance = 75% finance/treasury) where available, not a keyword guess. The Grain-specific lever. |
 | FX-exposure proxy | 0.20 | Themes carrying cross-border / multi-currency / settlement signal |
 | Reachability | 0.10 | Format/size — can a rep actually get meetings? |
 | Geo + cost-efficiency | 0.10 | Fit-per-dollar; a cheap high-fit regional event can out-rank a mega-pass |

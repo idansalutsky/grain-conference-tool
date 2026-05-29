@@ -2,8 +2,13 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { SubTabs } from "@/components/SubTabs";
 
 const DEFAULT_REP_ID = "rep-na-01";
+const ADMIN_TABS = [
+  { to: "/team", label: "Team" },
+  { to: "/settings", label: "Settings" },
+];
 
 export function SettingsPage() {
   useDocumentTitle("Settings");
@@ -38,10 +43,12 @@ export function SettingsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Settings</h1>
-      <p className="text-sm text-ink-500 mb-6">
-        Tune the scoring + matching + nudge thresholds. Changes take effect
-        immediately; conference scores re-compute on demand.
+      <h1 className="text-2xl mb-1">Admin</h1>
+      <SubTabs items={ADMIN_TABS} />
+      <p className="text-sm text-ink-500 mb-6 max-w-[65ch]">
+        Tune how matching and follow-up nudges behave, connect Telegram, and
+        review the ICP the whole tool scores against. Scoring weights live on the
+        Events page so you can watch events re-rank as you change them.
       </p>
 
       <section className="card p-5 mb-4">
@@ -75,38 +82,83 @@ export function SettingsPage() {
         )}
       </section>
 
-      <div className="flex justify-between items-baseline mb-3">
-        <h2 className="label">Parameters</h2>
-        <button
-          onClick={() => rescore.mutate()}
-          disabled={rescore.isPending}
-          className="btn-secondary text-xs"
-        >
-          {rescore.isPending ? "Re-scoring…" : "↻ Re-score all conferences"}
-        </button>
-      </div>
+      <div className="rule-label mb-3">Matching &amp; follow-up thresholds</div>
       <div className="space-y-2">
-        {data?.parameters.map((p: any) => (
-          <div key={p.key} className="card p-3">
-            <div className="text-xs text-ink-500 font-mono">{p.key}</div>
-            <div className="text-sm text-ink-700">{p.description}</div>
-            {p.ui === "slider" && (
-              <SliderRow p={p} onCommit={(v) => update.mutate({ key: p.key, value: v })} />
-            )}
-            {p.ui === "number" && (
-              <NumberRow p={p} onCommit={(v) => update.mutate({ key: p.key, value: v })} />
-            )}
-          </div>
-        ))}
+        {data?.parameters
+          .filter((p: any) => !String(p.key).startsWith("scoring."))
+          .map((p: any) => (
+            <div key={p.key} className="card p-3">
+              <div className="text-sm font-semibold text-ink-900">{humanLabel(p)}</div>
+              {p.description && <div className="text-xs text-ink-500 mt-0.5">{p.description}</div>}
+              {p.ui === "slider" && (
+                <SliderRow p={p} onCommit={(v) => update.mutate({ key: p.key, value: v })} />
+              )}
+              {p.ui === "number" && (
+                <NumberRow p={p} onCommit={(v) => update.mutate({ key: p.key, value: v })} />
+              )}
+            </div>
+          ))}
       </div>
+      <p className="text-xs text-ink-500 mt-3">
+        Conference scoring weights now live on the{" "}
+        <a href="/conferences" className="text-brand hover:underline">Events</a> page,
+        where you can watch events re-rank as you adjust them.
+      </p>
 
-      <details className="mt-6">
-        <summary className="cursor-pointer text-xs text-ink-500">ICP config</summary>
-        <pre className="text-xs bg-ink-50 p-3 rounded mt-2 overflow-auto">
-          {JSON.stringify(data?.icp, null, 2)}
-        </pre>
-      </details>
+      <IcpView icp={data?.icp} />
     </div>
+  );
+}
+
+// Turn "nudge.recency_days_max" into "Nudge — recency days max" when the
+// backend didn't supply a friendly title.
+function humanLabel(p: any): string {
+  if (p.label) return p.label;
+  const parts = String(p.key).split(".");
+  const tail = (parts[1] || parts[0]).replace(/_/g, " ");
+  const head = parts.length > 1 ? parts[0].replace(/_/g, " ") + " — " : "";
+  const s = head + tail;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function Chips({ items }: { items: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      {items.map((x) => (
+        <span key={x} className="px-2 py-0.5 rounded-md bg-ink-100 text-ink-700 text-xs">{x}</span>
+      ))}
+    </div>
+  );
+}
+
+function IcpView({ icp }: { icp: any }) {
+  if (!icp) return null;
+  const verticals: string[] = icp.verticals || icp.company_level?.verticals || [];
+  const titles: string[] = icp.target_titles || icp.person_level?.target_titles || [];
+  const competitors: string[] = icp.competitors || [];
+  return (
+    <section className="mt-8">
+      <div className="rule-label mb-3">Ideal Customer Profile — what "fit" means</div>
+      <div className="card p-4 space-y-4">
+        <div>
+          <div className="label mb-1">Target verticals</div>
+          <Chips items={verticals} />
+        </div>
+        <div>
+          <div className="label mb-1">Buyer titles we're hunting</div>
+          <Chips items={titles} />
+        </div>
+        {competitors.length > 0 && (
+          <div>
+            <div className="label mb-1">Competitors (presence = market validation)</div>
+            <Chips items={competitors} />
+          </div>
+        )}
+        <p className="text-xs text-ink-500">
+          Every score, target ranking and brief reads from this profile.
+        </p>
+      </div>
+    </section>
   );
 }
 

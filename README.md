@@ -81,8 +81,8 @@ python -m backend.seed_demo    # the cross-conference demo: 6 sample contacts, a
 ## Architecture
 
 ```
-Frontend — React + Vite + Tailwind  (Today · Events · Planning · Capture ·
-                                      Contacts · Nudges · Discovery · Team · Settings)
+Frontend — React + Vite + Tailwind  (6 grouped tabs:
+              Dashboard · Events(+Find new) · Calendar · Capture · People(Contacts+Follow-ups) · Admin(Team+Settings))
         │  HTTP / JSON  (frontend calls /api/*)
 Backend — FastAPI + SQLite (one file, no migrations)
         │  scoring · entity-resolution · arc · nudge · brief · voice ·

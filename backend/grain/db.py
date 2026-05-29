@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS conferences (
     estimated_attendance INTEGER,
     themes          TEXT,           -- comma-separated
     vertical        TEXT,           -- fintech / payments / travel / saas / treasury / crypto / other
+    agenda_summary  TEXT,           -- grounded 1-2 sentence summary of the agenda/audience
+    audience_composition_json TEXT, -- {cfo_treasury_finance_pct, engineering_product_pct, ...}
+    source_url      TEXT,           -- where the event data was scraped from
     cost_pass_usd   REAL,
     cost_booth_usd  REAL,
     score           REAL,
@@ -222,6 +225,9 @@ _INCREMENTAL_COLUMNS = [
     ("reps", "active_conference_id", "TEXT"),
     ("people", "company_id", "TEXT"),
     ("contacts", "company_id", "TEXT"),
+    ("conferences", "agenda_summary", "TEXT"),
+    ("conferences", "audience_composition_json", "TEXT"),
+    ("conferences", "source_url", "TEXT"),
 ]
 
 

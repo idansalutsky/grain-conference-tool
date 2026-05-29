@@ -26,14 +26,14 @@ SEED_DIR = Path(__file__).resolve().parent / "seed"
 
 
 def _seed_reps() -> None:
-    """Reps = real Grain GTM team members (scraped from public LinkedIn).
-    IDs are stable region anchors so the UI's default rep never breaks."""
+    """Sample GTM team. Fictional reps (not real Grain employees) — this is a
+    demo. IDs are stable region anchors so the UI's default rep never breaks."""
     reps = [
-        ("rep-na-01", "Chris Day", "chris@grain.test", "NA"),            # VP, North America
-        ("rep-eu-01", "Marc Padrosa Cabello", "marc@grain.test", "EU"),  # VP of Sales
-        ("rep-eu-02", "Diana Mihaylova", "diana@grain.test", "EU"),      # Director, Fintech
-        ("rep-apac-01", "Eugene Lin", "eugene@grain.test", "APAC"),      # Head of Sales (ex-Expedia)
-        ("rep-bd-01", "Ben Strugo", "ben@grain.test", "EU"),             # VP, Business Development
+        ("rep-na-01", "Jordan Avery", "jordan@grain.example", "NA"),
+        ("rep-eu-01", "Sofia Marsh", "sofia@grain.example", "EU"),
+        ("rep-eu-02", "Lukas Berg", "lukas@grain.example", "EU"),
+        ("rep-apac-01", "Mei Tan", "mei@grain.example", "APAC"),
+        ("rep-bd-01", "Omar Haddad", "omar@grain.example", "EU"),
     ]
     conn = db.get_conn()
     try:
@@ -97,6 +97,13 @@ def seed_conferences() -> int:
                 "estimated_attendance": c.get("estimated_attendance"),
                 "themes": c.get("themes"),
                 "vertical": vertical,
+                "agenda_summary": c.get("agenda_summary"),
+                "audience_composition_json": (
+                    json.dumps(c["audience_composition_json"], ensure_ascii=False)
+                    if isinstance(c.get("audience_composition_json"), (dict, list))
+                    else c.get("audience_composition_json")
+                ),
+                "source_url": c.get("source_url"),
                 "cost_pass_usd": c.get("cost_pass_usd"),
                 "cost_booth_usd": c.get("cost_booth_usd"),
                 "created_at": db.now_iso(),

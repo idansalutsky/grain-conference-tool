@@ -1,18 +1,20 @@
 import { ReactNode, useState } from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
-// One tab per moment in the rep's day: Decide → Plan → Capture → Recognise → Act.
+// Six grouped destinations along the rep's day. `match` = path prefixes that
+// keep the tab lit (e.g. Events stays active on the Find-new sub-page).
 const TABS = [
-  { to: "/today", label: "Today" },
-  { to: "/conferences", label: "Events" },
-  { to: "/planning", label: "Planning" },
-  { to: "/capture", label: "Capture" },
-  { to: "/contacts", label: "Contacts" },
-  { to: "/nudges", label: "Nudges" },
-  { to: "/discovery", label: "Discovery" },
-  { to: "/team", label: "Team" },
-  { to: "/settings", label: "Settings" },
+  { to: "/today", label: "Dashboard", match: ["/today"] },
+  { to: "/conferences", label: "Events", match: ["/conferences", "/discovery"] },
+  { to: "/planning", label: "Calendar", match: ["/planning"] },
+  { to: "/capture", label: "Capture", match: ["/capture"] },
+  { to: "/contacts", label: "People", match: ["/contacts", "/nudges"] },
+  { to: "/team", label: "Admin", match: ["/team", "/settings"] },
 ];
+
+function isGroupActive(match: string[], path: string): boolean {
+  return match.some((m) => path === m || path.startsWith(m + "/"));
+}
 
 function Wordmark() {
   return (
@@ -34,10 +36,10 @@ function Wordmark() {
   );
 }
 
-function navClass({ isActive }: { isActive: boolean }) {
+function navClass(active: boolean) {
   return (
     "px-3 py-1.5 rounded-md text-sm font-semibold transition-colors " +
-    (isActive ? "bg-ink-900 text-white" : "text-ink-500 hover:text-ink-900 hover:bg-ink-100")
+    (active ? "bg-ink-900 text-white" : "text-ink-500 hover:text-ink-900 hover:bg-ink-100")
   );
 }
 
@@ -51,11 +53,11 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center gap-6">
           <Wordmark />
           {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5 flex-wrap">
+          <nav className="hidden md:flex items-center gap-0.5">
             {TABS.map((t) => (
-              <NavLink key={t.to} to={t.to} className={navClass}>
+              <Link key={t.to} to={t.to} className={navClass(isGroupActive(t.match, loc.pathname))}>
                 {t.label}
-              </NavLink>
+              </Link>
             ))}
           </nav>
           {/* Mobile toggle */}
@@ -71,19 +73,22 @@ export function Layout({ children }: { children: ReactNode }) {
         {/* Mobile nav sheet */}
         {open && (
           <nav className="md:hidden border-t border-ink-200 bg-surface px-3 py-2 grid grid-cols-2 gap-1">
-            {TABS.map((t) => (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                onClick={() => setOpen(false)}
-                className={({ isActive }) =>
-                  "px-3 py-2.5 rounded-md text-sm font-semibold " +
-                  (isActive ? "bg-ink-900 text-white" : "text-ink-700 hover:bg-ink-100")
-                }
-              >
-                {t.label}
-              </NavLink>
-            ))}
+            {TABS.map((t) => {
+              const active = isGroupActive(t.match, loc.pathname);
+              return (
+                <Link
+                  key={t.to}
+                  to={t.to}
+                  onClick={() => setOpen(false)}
+                  className={
+                    "px-3 py-2.5 rounded-md text-sm font-semibold " +
+                    (active ? "bg-ink-900 text-white" : "text-ink-700 hover:bg-ink-100")
+                  }
+                >
+                  {t.label}
+                </Link>
+              );
+            })}
           </nav>
         )}
       </header>

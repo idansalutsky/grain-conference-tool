@@ -123,14 +123,21 @@ export function ConferenceDetailPage() {
               </p>
             </div>
           </section>
-          <section className="card p-4 space-y-2">
-            <h2 className="label">Event facts</h2>
-            <div className="text-xs space-y-1 text-ink-700">
-              <div>Themes: <span className="text-ink-500">{c.themes || "—"}</span></div>
+          <section className="card p-4 space-y-3">
+            <h2 className="label">Event intel</h2>
+            {c.agenda_summary && (
+              <p className="text-xs text-ink-700 leading-relaxed">{c.agenda_summary}</p>
+            )}
+            <AudienceMix raw={c.audience_composition_json} />
+            <div className="text-xs space-y-1 text-ink-700 pt-1">
               <div>Attendance estimate: {c.estimated_attendance?.toLocaleString() || "—"}</div>
               <div>Conference pass: {c.cost_pass_usd ? `$${c.cost_pass_usd}` : "—"}</div>
               <div>Booth: {c.cost_booth_usd ? `$${c.cost_booth_usd}` : "—"}</div>
             </div>
+            {c.source_url && (
+              <a href={c.source_url} target="_blank" rel="noreferrer"
+                 className="text-xs text-brand hover:underline">data source ↗</a>
+            )}
           </section>
         </div>
 
@@ -212,6 +219,35 @@ export function ConferenceDetailPage() {
             )}
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Audience composition — the measured buyer-density signal (grounded), shown
+// as a stacked bar that leads with finance/treasury %.
+function AudienceMix({ raw }: { raw?: string | null }) {
+  if (!raw) return null;
+  let c: any;
+  try { c = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
+  const fin = c.cfo_treasury_finance_pct;
+  if (fin == null) return null;
+  const segs = [
+    { pct: fin, color: "oklch(0.6 0.13 158)", label: "Finance / treasury" },
+    { pct: c.engineering_product_pct || 0, color: "oklch(0.62 0.1 245)", label: "Eng / product" },
+    { pct: c.marketing_sales_pct || 0, color: "oklch(0.66 0.12 62)", label: "Marketing / sales" },
+    { pct: c.other_pct || 0, color: "oklch(0.82 0.012 160)", label: "Other" },
+  ].filter((s) => s.pct > 0);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="label">Audience (measured)</span>
+        <span className="text-xs font-semibold" style={{ color: "oklch(0.45 0.11 158)" }}>
+          {fin}% finance / treasury
+        </span>
+      </div>
+      <div className="flex h-2.5 rounded overflow-hidden bg-ink-100" title="Scraped audience composition">
+        {segs.map((s) => <div key={s.label} style={{ flex: s.pct, background: s.color }} title={`${s.label}: ${s.pct}%`} />)}
       </div>
     </div>
   );

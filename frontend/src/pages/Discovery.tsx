@@ -3,11 +3,16 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { toastErrorMessage } from "@/components/Toast";
+import { SubTabs } from "@/components/SubTabs";
 
 const REGIONS = ["any", "NA", "EU", "APAC", "MEA", "LATAM"];
+const EVENTS_TABS = [
+  { to: "/conferences", label: "Browse events" },
+  { to: "/discovery", label: "✨ Find new" },
+];
 
 export function DiscoveryPage() {
-  useDocumentTitle("Discovery");
+  useDocumentTitle("Find events");
   const qc = useQueryClient();
   const [region, setRegion] = useState("any");
   const [maxResults, setMaxResults] = useState(5);
@@ -43,8 +48,10 @@ export function DiscoveryPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Conference discovery</h1>
-      <p className="text-sm text-ink-500 mb-4">
+      <h1 className="text-2xl mb-1">Events</h1>
+      <SubTabs items={EVENTS_TABS} />
+      <h2 className="text-lg mb-1">Find events you don't already know about</h2>
+      <p className="text-sm text-ink-500 mb-4 max-w-[60ch]">
         Ask Perplexity Sonar to surface upcoming events relevant to Grain's ICP
         that aren't in our database. Approve the ones that look right — they
         get auto-scored against the same 7-factor model.

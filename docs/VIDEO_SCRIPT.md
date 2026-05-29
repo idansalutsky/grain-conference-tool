@@ -19,11 +19,13 @@ Show: the Conferences page, top of the list.
 
 ## 0:20 — 1:30 — DECIDE: scoring + the buyer-density wedge
 
-> "Money20/20 USA is Tier A at the top — and Grain already knows it goes there,
-> so the tool *agrees with a decision they've made*. The interesting part is
-> what sits right beside it: treasury-pure events like EuroFinance and AFP score
-> Tier A **over bigger, generic fintech shows** — because the score weights
-> finance/treasury buyer density, not raw attendance. That's the Grain wedge."
+> "Look at the top: EuroFinance and AFP — treasury-pure events — out-rank
+> Money20/20, which has six times the attendees. Why? The buyer-density factor
+> uses the *measured* audience composition we scraped: EuroFinance is 75%
+> finance/treasury; Money20/20 is huge but more mixed. So the tool ranks on
+> *who's actually in the room for Grain*, not raw size. And it still puts
+> Money20/20 in Tier A — a decision Grain's already made — just not at the very
+> top. That contrast is the heavy-FX-buyer wedge, grounded in real data."
 
 Click into the top event. Show the 7-factor score breakdown:
 

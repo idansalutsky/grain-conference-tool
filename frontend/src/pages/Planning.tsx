@@ -3,8 +3,16 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
+const NOW_MONTH = new Date().toISOString().slice(0, 7);
+// Tier colours aligned with the stamp palette (A green, B blue, C neutral).
+const TIER_FILL: Record<string, string> = {
+  A: "oklch(0.6 0.13 158)",
+  B: "oklch(0.62 0.1 245)",
+  C: "oklch(0.78 0.012 160)",
+};
+
 export function PlanningPage() {
-  useDocumentTitle("Planning");
+  useDocumentTitle("Calendar");
   const coverage = useQuery({
     queryKey: ["coverage"],
     queryFn: () => api.get<any>("/api/planning/coverage"),
@@ -20,40 +28,27 @@ export function PlanningPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Planning</h1>
-      <p className="text-sm text-ink-500 mb-6">
-        Where the team is concentrated vs under-invested, and where trips can cluster.
+      <h1 className="text-2xl mb-1">Calendar</h1>
+      <p className="text-sm text-ink-500 mb-6 max-w-[62ch]">
+        The year ahead — how many events fall in each month (by tier), which
+        high-fit events still have no one assigned, and which trips can be
+        batched into one swing.
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <section className="card p-4">
-          <h2 className="label mb-3">Coverage across the year</h2>
-          {coverage.data?.months?.length > 0 ? (
+          <h2 className="label mb-3">Events per month, ahead</h2>
+          {coverage.data?.months?.filter((m: any) => m.month >= NOW_MONTH).length > 0 ? (
             <div className="space-y-1.5">
-              {coverage.data.months.map((m: any) => (
+              {coverage.data.months.filter((m: any) => m.month >= NOW_MONTH).map((m: any) => (
                 <div key={m.month} className="flex items-center gap-3 text-xs">
                   <span className="w-20 font-mono text-ink-700">{m.month}</span>
                   <div className="flex-1 flex h-5 rounded overflow-hidden bg-ink-100">
-                    {m.by_tier.A > 0 && (
-                      <div
-                        className="bg-emerald-500"
-                        style={{ flex: m.by_tier.A }}
-                        title={`Tier A: ${m.by_tier.A}`}
-                      />
-                    )}
-                    {m.by_tier.B > 0 && (
-                      <div
-                        className="bg-amber-400"
-                        style={{ flex: m.by_tier.B }}
-                        title={`Tier B: ${m.by_tier.B}`}
-                      />
-                    )}
-                    {m.by_tier.C > 0 && (
-                      <div
-                        className="bg-ink-300"
-                        style={{ flex: m.by_tier.C }}
-                        title={`Tier C: ${m.by_tier.C}`}
-                      />
+                    {(["A", "B", "C"] as const).map((t) =>
+                      m.by_tier[t] > 0 ? (
+                        <div key={t} style={{ flex: m.by_tier[t], background: TIER_FILL[t] }}
+                             title={`Tier ${t}: ${m.by_tier[t]}`} />
+                      ) : null,
                     )}
                   </div>
                   <span className="text-ink-500 w-12 text-right">
@@ -66,9 +61,12 @@ export function PlanningPage() {
             <div className="text-sm text-ink-500">No coverage data yet.</div>
           )}
           <div className="text-[10px] text-ink-500 mt-3 flex gap-3">
-            <span><span className="inline-block w-3 h-2 bg-emerald-500 align-middle mr-1" />A</span>
-            <span><span className="inline-block w-3 h-2 bg-amber-400 align-middle mr-1" />B</span>
-            <span><span className="inline-block w-3 h-2 bg-ink-300 align-middle mr-1" />C</span>
+            {(["A", "B", "C"] as const).map((t) => (
+              <span key={t}>
+                <span className="inline-block w-3 h-2 align-middle mr-1" style={{ background: TIER_FILL[t] }} />
+                Tier {t}
+              </span>
+            ))}
           </div>
         </section>
 

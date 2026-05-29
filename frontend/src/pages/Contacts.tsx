@@ -5,8 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { ArcBadge } from "@/components/Badges";
 import { ReviewQueue } from "@/components/ReviewQueue";
+import { SubTabs } from "@/components/SubTabs";
 
 const ARCS = ["All", "warming", "flat", "cooling", "tire_kicker"];
+const PEOPLE_TABS = [
+  { to: "/contacts", label: "Contacts" },
+  { to: "/nudges", label: "Follow-ups" },
+];
 
 export function ContactsPage() {
   useDocumentTitle("Contacts");
@@ -21,10 +26,12 @@ export function ContactsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Contacts</h1>
+      <h1 className="text-2xl mb-1">People</h1>
       <p className="text-sm text-ink-500 mb-4">
-        Canonical people across every conference — with the arc verdict.
+        Everyone you've met, resolved into one record per person across every
+        conference — with the relationship read.
       </p>
+      <SubTabs items={PEOPLE_TABS} />
 
       <ReviewQueue />
 

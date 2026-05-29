@@ -18,7 +18,7 @@ interface TodayPayload {
 }
 
 export function TodayPage() {
-  useDocumentTitle("Today");
+  useDocumentTitle("Dashboard");
   const { data, isLoading, error } = useQuery({
     queryKey: ["today", DEFAULT_REP_ID],
     queryFn: () => api.get<TodayPayload>(`/api/today/${DEFAULT_REP_ID}`),
@@ -33,6 +33,13 @@ export function TodayPage() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl">Dashboard</h1>
+        <span className="stamp" style={{ color: "oklch(0.5 0.015 160)", background: "oklch(0.95 0.006 160)", borderColor: "oklch(0.88 0.01 160)" }} title="Contacts & captures shown here are sample data for the demo.">
+          sample data
+        </span>
+      </div>
+
       {/* === Hero — active or next event === */}
       {hasEvent ? (
         <section className="card p-5" style={ev.is_active_now ? { background: "oklch(0.97 0.03 158)", borderColor: "oklch(0.84 0.07 158)" } : undefined}>
@@ -104,9 +111,9 @@ export function TodayPage() {
 
         <section className="card p-4">
           <div className="flex justify-between items-baseline mb-3">
-            <h2 className="text-sm font-semibold">Warming nudges to clear</h2>
+            <h2 className="text-sm font-semibold">Follow-ups to make now</h2>
             <Link to="/nudges" className="text-xs text-brand hover:underline">
-              All nudges →
+              All follow-ups →
             </Link>
           </div>
           <div className="space-y-2">
@@ -138,7 +145,8 @@ export function TodayPage() {
       {/* === Two-column: recent captures + pending action chips === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <section className="card p-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold mb-3">Your recent captures</h2>
+          <h2 className="text-sm font-semibold">Your recent captures</h2>
+          <p className="text-xs text-ink-500 mb-3">Leads you've logged from the floor, newest first.</p>
           <div className="space-y-1.5">
             {data.recent_captures.map((c) => {
               const s = c.structured || {};
@@ -186,7 +194,7 @@ export function TodayPage() {
             {data.review_needed_count > 0 && (
               <Link to="/contacts" className="block card p-3 bg-blue-50 border-blue-200 hover:bg-blue-100 transition">
                 <div className="font-medium text-sm text-blue-900">
-                  {data.review_needed_count} match{data.review_needed_count === 1 ? "" : "es"} need review
+                  {data.review_needed_count} {data.review_needed_count === 1 ? "match needs" : "matches need"} review
                 </div>
                 <div className="text-xs text-blue-800 mt-0.5">
                   Resolver wasn't sure — your call

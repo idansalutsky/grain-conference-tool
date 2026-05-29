@@ -17,7 +17,7 @@ contribution to the total, and a one-sentence evidence string.
 | Factor | Weight | What it measures | Why it's here |
 |---|---|---|---|
 | `vertical_concentration` | 0.25 | Is the event vertical in Grain's ICP? | The wedge — Grain sells to payments, treasury, travel, marketplaces. Generic fintech doesn't cut it. |
-| `buyer_density` | 0.25 | Likelihood that CFOs / Treasurers / Heads of Finance attend | The single most direct correlate of pipeline. |
+| `buyer_density` | 0.25 | Share of CFO / Treasury / Finance attendees — from the **scraped, measured audience composition** where we have it (e.g. EuroFinance = 75% finance/treasury), else theme keywords | The single most direct correlate of pipeline, grounded in real audience data rather than a guess. |
 | `fx_exposure_proxy` | 0.20 | Themes carrying FX-relevant signal | "Cross-border", "settlement", "multi-currency" — these are the words a buyer who needs Grain uses. |
 | `reachability` | 0.10 | Format + size — can a rep actually meet people? | A 50-person closed roundtable scores worse than a 5000-attendee expo. Webinars score lowest. |
 | `geo_cost_efficiency` | 0.10 | Region weighted by typical travel cost | A $7K NYC trip needs higher ROI than a $1.5K Singapore trip. |
@@ -31,10 +31,14 @@ Weights are sliders in the Settings UI. Sum to 1.0 by default (excluding
 
 | Conference | Tier | Score | Top contributors |
 |---|---|---|---|
-| Money20/20 USA 2026 | A | 87.8 | vertical_concentration 1.00, fx_exposure 0.95, buyer_density 0.90 |
-| EuroFinance International Treasury Management 2026 | A | 87.2 | buyer_density 0.95 (treasury-pure), fx_exposure 0.95 |
-| Phocuswright 2026 | A | 76 | vertical=travel direct hit, fx_exposure on cross-border bookings |
-| ITB Berlin 2026 | B | 62 | reachability 0.90 (huge), but vertical=travel is one step removed |
+| EuroFinance Intl Treasury Management 2026 | A | 87 | buyer_density 0.94 (**75% finance/treasury, measured**), fx_exposure 0.95 |
+| AFP Annual Conference 2026 | A | 83 | buyer_density 0.94 (measured), treasury-pure |
+| Money20/20 USA 2026 | A | 75 | vertical 1.00, fx_exposure 0.95 — but lower measured finance-density than the treasury shows |
+
+**The defining moment:** treasury-pure events (EuroFinance, AFP) now out-rank the
+giant Money20/20 *because* their measured finance/treasury audience density is
+higher — even though Money20/20 has 6× the attendees. That's the heavy-FX-buyer
+wedge beating raw size, grounded in real audience data, not a hunch.
 | WiT Singapore | B | 58 | travel + APAC + small format |
 
 ## What the model **deliberately doesn't** do

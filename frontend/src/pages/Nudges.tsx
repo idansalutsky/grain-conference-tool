@@ -3,9 +3,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { ArcBadge } from "@/components/Badges";
+import { SubTabs } from "@/components/SubTabs";
+
+const PEOPLE_TABS = [
+  { to: "/contacts", label: "Contacts" },
+  { to: "/nudges", label: "Follow-ups" },
+];
 
 export function NudgesPage() {
-  useDocumentTitle("Nudges");
+  useDocumentTitle("Follow-ups");
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["nudges"],
@@ -31,8 +37,14 @@ export function NudgesPage() {
 
   return (
     <div>
+      <h1 className="text-2xl mb-1">People</h1>
+      <p className="text-sm text-ink-500 mb-4">
+        Everyone you've met across every conference — with the relationship read.
+      </p>
+      <SubTabs items={PEOPLE_TABS} />
+
       <div className="flex justify-between items-end mb-1">
-        <h1 className="text-2xl">Active nudges</h1>
+        <h2 className="text-lg">Follow-ups worth making now</h2>
         <button
           onClick={() => recompute.mutate()}
           disabled={recompute.isPending}
@@ -43,7 +55,7 @@ export function NudgesPage() {
       </div>
       <p className="text-sm text-ink-500 mb-4">
         Calibrated — only fires on{" "}
-        <span className="text-emerald-600 font-medium">warming</span> contacts
+        <span className="font-medium" style={{ color: "oklch(0.55 0.12 158)" }}>warming</span> contacts
         with ≥ 2 encounters, recent touch, and no prior meeting. Silent on
         weak signal by design.
       </p>

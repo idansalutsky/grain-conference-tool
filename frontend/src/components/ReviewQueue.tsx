@@ -65,7 +65,7 @@ export function ReviewQueue() {
     <section className="card p-4 mb-4" style={{ background: "oklch(0.97 0.025 245)", borderColor: "oklch(0.85 0.06 245)" }}>
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="text-sm font-semibold" style={{ color: "oklch(0.42 0.1 245)" }}>
-          {items.length} match{items.length === 1 ? "es need" : " needs"} your review
+          {items.length} {items.length === 1 ? "match needs" : "matches need"} your review
         </h2>
         <span className="text-xs text-ink-500">
           Resolver wasn't sure — your call

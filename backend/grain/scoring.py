@@ -86,6 +86,19 @@ def _vertical_concentration(conf: dict) -> tuple[float, str]:
 
 
 def _buyer_density(conf: dict) -> tuple[float, str]:
+    # Prefer the MEASURED audience composition when we scraped it — grounded,
+    # not guessed. cfo_treasury_finance_pct is the buyer-density signal.
+    ac = conf.get("audience_composition_json")
+    if ac:
+        try:
+            import json as _json
+            comp = _json.loads(ac) if isinstance(ac, str) else ac
+            pct = comp.get("cfo_treasury_finance_pct")
+            if pct is not None:
+                raw = max(0.05, min(1.0, float(pct) / 80.0))  # 80%+ → max
+                return round(raw, 2), f"{pct}% finance/treasury audience (measured)"
+        except (ValueError, TypeError, AttributeError):
+            pass
     themes = (conf.get("themes") or "").lower()
     name = (conf.get("name") or "").lower()
     # Treasury-pure events
