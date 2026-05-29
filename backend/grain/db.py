@@ -260,6 +260,9 @@ _INCREMENTAL_COLUMNS = [
     ("conferences", "source_url", "TEXT"),
     ("people", "verified", "INTEGER DEFAULT 0"),
     ("contacts", "phone", "TEXT"),
+    # When a rep taps "next person" / sends /next, we stamp this — captures
+    # before it won't stitch into captures after it (an explicit session break).
+    ("reps", "capture_break_at", "TEXT"),
 ]
 
 

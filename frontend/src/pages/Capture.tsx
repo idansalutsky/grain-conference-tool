@@ -163,7 +163,13 @@ export function CapturePage() {
         </div>
       </div>
 
-      {result && <CaptureResultCard key={result.encounter_id} result={result} />}
+      {result && (
+        <CaptureResultCard
+          key={result.encounter_id}
+          result={result}
+          onDeleted={() => setResult(null)}
+        />
+      )}
     </div>
   );
 }

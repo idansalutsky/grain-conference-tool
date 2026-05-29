@@ -169,6 +169,16 @@ def edit_encounter(encounter_id: str, body: EditEncounter) -> dict:
     return out
 
 
+@router.delete("/{encounter_id}")
+def delete_encounter(encounter_id: str) -> dict:
+    """Discard a capture (mistake / junk OCR). Cleans up an orphaned contact
+    and re-cascades the contact if it has other encounters."""
+    out = voice.delete_encounter(encounter_id)
+    if not out.get("ok"):
+        raise HTTPException(404, out.get("error", "encounter not found"))
+    return out
+
+
 @router.post("/cascade/{contact_id}")
 def trigger_cascade(contact_id: str) -> dict:
     """Manually re-run arc + nudge. Used when the rep wants the latest

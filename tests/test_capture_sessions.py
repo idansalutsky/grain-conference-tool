@@ -144,6 +144,94 @@ def test_phone_plus_name_auto_merges():
 # ---------------------------------------------------------------------------
 # Editing a capture re-resolves + cleans the orphan
 # ---------------------------------------------------------------------------
+def _make_rep(rep_id, tg_id=None):
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO reps (id, full_name, region, telegram_user_id, "
+            "created_at) VALUES (?,?,?,?,?)",
+            (rep_id, rep_id, "EU", tg_id, db.now_iso()),
+        )
+    finally:
+        conn.close()
+    return rep_id
+
+
+# ---------------------------------------------------------------------------
+# Sentiment merge: the latest MEANINGFUL read wins (not max)
+# ---------------------------------------------------------------------------
+def test_sentiment_merge_latest_meaningful_wins():
+    # later "cooled to 2" overrides an earlier warm 5
+    assert voice._merge_structured({"sentiment": 5}, {"sentiment": 2})["sentiment"] == 2
+    # a later NEUTRAL (e.g. a badge added after a voice note) keeps the prior read
+    assert voice._merge_structured({"sentiment": 5}, {"sentiment": 3})["sentiment"] == 5
+    # warming up
+    assert voice._merge_structured({"sentiment": 3}, {"sentiment": 4})["sentiment"] == 4
+
+
+# ---------------------------------------------------------------------------
+# Explicit "next person" break stops stitching inside the window
+# ---------------------------------------------------------------------------
+def test_session_break_prevents_stitch():
+    rep = _make_rep("rep-break")
+    payload = {
+        "name": "Pat Break", "company": "BreakCo", "title": "CFO",
+        "vertical": "payments", "sentiment": 4, "soft_signals": [],
+        "meeting_requested": False, "what_discussed": "one", "transcript": "",
+    }
+    with patch("grain.voice.llm.text_to_lead", return_value=payload):
+        a = voice.capture_text_fast(text="first", rep_id=rep)
+        voice.close_capture_session(rep)            # ← "next person"
+        b = voice.capture_text_fast(text="second", rep_id=rep)
+    assert b.get("stitched") is False               # break forced a new encounter
+    assert _enc_count_for_contact(a["contact_id"]) == 2  # same person, two touches
+
+
+# ---------------------------------------------------------------------------
+# Delete a capture
+# ---------------------------------------------------------------------------
+def test_delete_orphan_contact_is_removed():
+    rep = "rep-del-orphan"
+    with patch("grain.voice.llm.text_to_lead", return_value={
+        "name": "Solo Delete", "company": "SoloCo", "title": "CFO",
+        "vertical": "payments", "sentiment": 3, "soft_signals": [],
+        "meeting_requested": False, "what_discussed": "x", "transcript": "",
+    }):
+        cap = voice.capture_text_fast(text="solo", rep_id=rep)
+    cid = cap["contact_id"]
+    out = voice.delete_encounter(cap["encounter_id"])
+    assert out["ok"]
+    conn = db.get_conn()
+    try:
+        assert conn.execute("SELECT 1 FROM contacts WHERE id=?", (cid,)).fetchone() is None
+        assert conn.execute("SELECT 1 FROM encounters WHERE id=?",
+                            (cap["encounter_id"],)).fetchone() is None
+    finally:
+        conn.close()
+
+
+def test_delete_keeps_contact_with_other_encounters():
+    rep = _make_rep("rep-del-keep")
+    payload = {
+        "name": "Multi Touch", "company": "MultiCo", "title": "CFO",
+        "vertical": "payments", "sentiment": 4, "soft_signals": [],
+        "meeting_requested": False, "what_discussed": "x", "transcript": "",
+    }
+    with patch("grain.voice.llm.text_to_lead", return_value=payload):
+        a = voice.capture_text_fast(text="t1", rep_id=rep)
+        voice.close_capture_session(rep)        # force a second distinct touch
+        b = voice.capture_text_fast(text="t2", rep_id=rep)
+    assert a["contact_id"] == b["contact_id"]    # same person, two encounters
+    voice.delete_encounter(a["encounter_id"])
+    conn = db.get_conn()
+    try:
+        assert conn.execute("SELECT 1 FROM contacts WHERE id=?",
+                            (a["contact_id"],)).fetchone() is not None
+        assert _enc_count_for_contact(a["contact_id"]) == 1
+    finally:
+        conn.close()
+
+
 def test_edit_capture_reresolves_and_cleans_orphan():
     rep = "rep-edit-x"
     with patch("grain.voice.llm.text_to_lead", return_value={

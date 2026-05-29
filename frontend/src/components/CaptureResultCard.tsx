@@ -8,6 +8,7 @@ import type { CaptureResult } from "@/lib/types";
 
 interface Props {
   result: CaptureResult;
+  onDeleted?: () => void;
 }
 
 /**
@@ -15,7 +16,7 @@ interface Props {
  * arc + nudge update if the cascade is still running in the background.
  * Exposes one-tap HubSpot push.
  */
-export function CaptureResultCard({ result }: Props) {
+export function CaptureResultCard({ result, onDeleted }: Props) {
   const { push: toast } = useToast();
   const [s, setS] = useState<any>(result.structured || {});
   const [contactId, setContactId] = useState(result.contact_id);
@@ -89,6 +90,15 @@ export function CaptureResultCard({ result }: Props) {
     mutationFn: () => api.post<any>(`/api/hubspot/push/${contactId}`),
     onSuccess: (d) => {
       toast("success", d?.dry_run ? "Pushed to HubSpot (dry-run)" : "Pushed to HubSpot");
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const discard = useMutation({
+    mutationFn: () => api.delete(`/api/encounters/${result.encounter_id}`),
+    onSuccess: () => {
+      toast("success", "Capture discarded");
+      onDeleted?.();
     },
     onError: (e) => toast("error", toastErrorMessage(e)),
   });
@@ -230,6 +240,13 @@ export function CaptureResultCard({ result }: Props) {
           >
             Open contact →
           </Link>
+          <button
+            onClick={() => discard.mutate()}
+            disabled={discard.isPending}
+            className="btn-ghost text-xs text-ink-500 hover:text-tire ml-auto"
+          >
+            {discard.isPending ? "Discarding…" : "🗑 Discard"}
+          </button>
           {push.data && (
             <span className="text-xs text-ink-500">
               {push.data.dry_run ? "✓ Dry-run OK" : "✓ Pushed"}

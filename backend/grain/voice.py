@@ -270,6 +270,74 @@ def _stitch_window_seconds() -> int:
         return DEFAULT_STITCH_WINDOW_SECONDS
 
 
+def _capture_break_at(rep_id: Optional[str]) -> Optional[datetime]:
+    if not rep_id:
+        return None
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT capture_break_at FROM reps WHERE id = ?", (rep_id,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["capture_break_at"]:
+        return None
+    try:
+        return datetime.fromisoformat(row["capture_break_at"].replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def close_capture_session(rep_id: str) -> dict:
+    """Mark a session break ("next person") — subsequent captures start a new
+    encounter even if they fall inside the stitch window."""
+    conn = db.get_conn()
+    try:
+        cur = conn.execute(
+            "UPDATE reps SET capture_break_at = ? WHERE id = ?",
+            (db.now_iso(), rep_id),
+        )
+        ok = cur.rowcount > 0
+    finally:
+        conn.close()
+    return {"ok": ok, "rep_id": rep_id}
+
+
+def delete_encounter(encounter_id: str) -> dict:
+    """Remove a capture (mistake / junk OCR). Re-cascades the contact if it has
+    other encounters, else deletes the now-orphaned contact."""
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT contact_id FROM encounters WHERE id = ?", (encounter_id,)
+        ).fetchone()
+        if not row:
+            return {"ok": False, "error": "encounter_not_found"}
+        contact_id = row["contact_id"]
+        conn.execute("DELETE FROM encounters WHERE id = ?", (encounter_id,))
+    finally:
+        conn.close()
+    if contact_id:
+        remaining = _delete_if_orphan(contact_id)
+        if remaining:  # contact still has encounters → its arc/nudge changed
+            run_cascade_in_background(contact_id)
+    return {"ok": True, "encounter_id": encounter_id, "contact_id": contact_id}
+
+
+def last_encounter_for_rep(rep_id: str) -> Optional[dict]:
+    """The rep's most recent encounter (for /undo and /fix in chat)."""
+    conn = db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT id, structured_json FROM encounters WHERE rep_id = ? "
+            "ORDER BY captured_at DESC LIMIT 1",
+            (rep_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
 def _try_stitch(*, new_structured: dict, raw_input: str, media_path,
                 rep_id: Optional[str], conference_id: Optional[str],
                 capture_mode: str) -> Optional[dict]:
@@ -298,6 +366,11 @@ def _try_stitch(*, new_structured: dict, raw_input: str, media_path,
         return None
     if (datetime.now(timezone.utc) - last).total_seconds() > _stitch_window_seconds():
         return None  # window closed → new encounter
+    # Explicit "next person" break: if the rep marked a session break AFTER this
+    # candidate was captured, the candidate belongs to a previous person.
+    break_at = _capture_break_at(rep_id)
+    if break_at and last <= break_at:
+        return None
 
     base = json.loads(enc.get("structured_json") or "{}")
     base_name = (base.get("name") or "").strip()
@@ -324,8 +397,12 @@ def _merge_structured(base: dict, new: dict) -> dict:
         out["what_discussed"] = " | ".join(dict.fromkeys(discussed))
     out["soft_signals"] = sorted(set((base.get("soft_signals") or [])
                                      + (new.get("soft_signals") or [])))
-    out["sentiment"] = max(_normalize_lead(base)["sentiment"],
-                           _normalize_lead(new)["sentiment"])
+    # Sentiment: the LATEST meaningful read wins (a later "actually, lukewarm"
+    # should override the badge's neutral, not be masked by a max()). Keep the
+    # prior read only when the new input is neutral (e.g. a badge added later).
+    b_sent = _normalize_lead(base)["sentiment"]
+    n_sent = _normalize_lead(new)["sentiment"]
+    out["sentiment"] = n_sent if n_sent != 3 else b_sent
     out["meeting_requested"] = bool(base.get("meeting_requested")) or bool(new.get("meeting_requested"))
     return out
 
@@ -396,9 +473,9 @@ def _enrich_contact_from_struct(contact_id: str, struct: dict) -> None:
         conn.close()
 
 
-def _delete_if_orphan(contact_id: str) -> None:
-    """Delete a contact that has no remaining encounters (created then stitched
-    away within the same capture session)."""
+def _delete_if_orphan(contact_id: str) -> bool:
+    """Delete a contact that has no remaining encounters. Returns True if the
+    contact still has encounters (survived), False if it was deleted."""
     conn = db.get_conn()
     try:
         n = conn.execute(
@@ -406,6 +483,8 @@ def _delete_if_orphan(contact_id: str) -> None:
         ).fetchone()[0]
         if n == 0:
             conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+            return False
+        return True
     finally:
         conn.close()
 

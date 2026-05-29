@@ -355,6 +355,40 @@ def handle_update(update: dict) -> dict:
     # binding that means "every capture auto-tags to Money20/20".
     active_conf = rep.get("active_conference_id")
 
+    # In-field commands — correct/clean a capture without leaving the chat.
+    if text.startswith("/"):
+        cmd, _, rest = text.partition(" ")
+        cmd = cmd.lower().lstrip("/")
+        rest = rest.strip()
+        if cmd in ("next", "done"):
+            voice.close_capture_session(rep["id"])
+            send_message(chat_id, "👍 New person — the next capture starts fresh.")
+            return {"action": "session_break"}
+        if cmd == "undo":
+            last = voice.last_encounter_for_rep(rep["id"])
+            if not last:
+                send_message(chat_id, "Nothing to undo.")
+                return {"action": "undo_empty"}
+            voice.delete_encounter(last["id"])
+            send_message(chat_id, "🗑️ Removed your last capture.")
+            return {"action": "undo", "encounter_id": last["id"]}
+        if cmd == "fix":
+            field, _, value = rest.partition(" ")
+            field, value = field.strip().lower(), value.strip()
+            if field not in {"name", "company", "title", "email", "phone"} or not value:
+                send_message(chat_id, "Usage: /fix <name|company|title|email|phone> <value>")
+                return {"action": "fix_usage"}
+            last = voice.last_encounter_for_rep(rep["id"])
+            if not last:
+                send_message(chat_id, "Nothing to fix yet.")
+                return {"action": "fix_empty"}
+            result = voice.edit_encounter(last["id"], {field: value})
+            send_message(chat_id, "✏️ Updated.\n\n" + _intel_reply(result))
+            return {"action": "fix", "encounter_id": last["id"], "field": field}
+        # Unknown command → fall through (could be /start handled above, or noise)
+        send_message(chat_id, "Commands: /next (new person), /undo, /fix <field> <value>.")
+        return {"action": "unknown_command", "command": cmd}
+
     # Voice memo
     voice_obj = msg.get("voice")
     if voice_obj:
