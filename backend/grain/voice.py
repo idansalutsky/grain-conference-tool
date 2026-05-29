@@ -379,18 +379,37 @@ def _try_stitch(*, new_structured: dict, raw_input: str, media_path,
     if base_name and new_name:
         if entity_resolution._name_similarity(base_name, new_name) < 0.6:
             return None
-    merged = _merge_structured(base, new_structured)
+    merged = _merge_structured(
+        base, new_structured,
+        base_mode=enc.get("capture_mode") or "", new_mode=capture_mode,
+    )
     return _merge_into_encounter(enc, merged, raw_input, media_path, capture_mode)
 
 
-def _merge_structured(base: dict, new: dict) -> dict:
-    """Deterministic, explainable field merge. Fill-if-missing for identity
-    fields (first capture — usually the badge — wins on conflict); union
-    signals; concat discussion; OR meeting; max sentiment."""
+# Source reliability for identity fields: a PRINTED badge/business-card/contact
+# beats a HEARD voice/text, which beats a LinkedIn-slug GUESS.
+def _source_rank(mode: str) -> int:
+    ranks = [3 if ("badge" in m or "contact" in m) else 1 if "linkedin" in m else 2
+             for m in (mode or "").split("+") if m]
+    return max(ranks) if ranks else 2
+
+
+def _merge_structured(base: dict, new: dict, *, base_mode: str = "",
+                      new_mode: str = "") -> dict:
+    """Deterministic, explainable field merge. Identity fields fill-if-missing,
+    but a more-authoritative SOURCE (e.g. a badge photo) corrects a mis-heard
+    voice value on conflict. Union signals; concat discussion; OR meeting;
+    latest-meaningful sentiment."""
     out = _normalize_lead(base)
     for k in ("name", "company", "title", "email", "phone", "linkedin", "vertical"):
-        if not (out.get(k) or "").strip() and (new.get(k) or "").strip():
-            out[k] = new[k]
+        bv = (out.get(k) or "").strip()
+        nv = (new.get(k) or "").strip()
+        if not nv:
+            continue
+        if not bv:
+            out[k] = new[k]                      # fill the gap
+        elif k in ("name", "company", "title") and _source_rank(new_mode) > _source_rank(base_mode):
+            out[k] = new[k]                      # printed source corrects a heard one
     discussed = [d for d in [base.get("what_discussed"), new.get("what_discussed")]
                  if (d or "").strip()]
     if discussed:
