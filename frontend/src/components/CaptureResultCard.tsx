@@ -38,7 +38,8 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
   function startEdit() {
     setDraft({
       name: s.name || "", company: s.company || "",
-      title: s.title || "", phone: (s as any).phone || "",
+      title: s.title || "", email: (s as any).email || "",
+      phone: (s as any).phone || "", linkedin: (s as any).linkedin || "",
     });
     setEditing(true);
   }
@@ -120,7 +121,7 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
 
       {editing ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
-          {(["name", "company", "title", "email", "phone"] as const).map((f) => (
+          {(["name", "company", "title", "email", "phone", "linkedin"] as const).map((f) => (
             <label key={f} className="text-xs">
               <span className="text-ink-500 capitalize">{f}</span>
               <input
