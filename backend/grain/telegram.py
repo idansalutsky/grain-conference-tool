@@ -59,12 +59,12 @@ def _is_wrap_phrase(text: str) -> bool:
 # Token / binding
 # ---------------------------------------------------------------------------
 def issue_link_token(rep_id: str, conference_id: Optional[str] = None) -> str:
-    """Generate a one-time UUID token; persist on the rep row.
+    """Issue a NEW one-time bind token (one row in telegram_link_tokens).
 
-    If `conference_id` is provided, the rep's `active_conference_id` will be
-    set to that value when /start is redeemed. This lets the "Connect Telegram
-    for THIS event" button bind a rep to a specific event in one round-trip
-    — no /event command, no dropdown.
+    A rep can hold many live tokens at once — one per event they cover — so
+    per-event connect links coexist instead of clobbering a single slot. When a
+    token carries a `conference_id`, redeeming it (/start) sets that event as the
+    rep's active event, so every capture auto-tags to the right conference.
     """
     token = uuid.uuid4().hex
     conn = db.get_conn()
@@ -73,9 +73,9 @@ def issue_link_token(rep_id: str, conference_id: Optional[str] = None) -> str:
         if not row:
             raise ValueError(f"rep {rep_id} not found")
         conn.execute(
-            "UPDATE reps SET telegram_link_token = ?, "
-            "telegram_link_token_event_id = ? WHERE id = ?",
-            (token, conference_id, rep_id),
+            "INSERT INTO telegram_link_tokens (token, rep_id, conference_id, "
+            "created_at) VALUES (?,?,?,?)",
+            (token, rep_id, conference_id, db.now_iso()),
         )
     finally:
         conn.close()
@@ -87,28 +87,28 @@ def deep_link(token: str) -> str:
     return f"https://t.me/{bot}?start={token}"
 
 
-def _bind_rep(rep_id: str, telegram_user_id: int) -> Optional[str]:
-    """Bind rep to telegram_user_id. If the pending issue-token carried a
-    conference_id, promote it to `active_conference_id` so subsequent
-    captures auto-attribute to that event.
+def _bind_rep(rep_id: str, telegram_user_id: int,
+              conference_id: Optional[str] = None) -> Optional[str]:
+    """Bind a rep's Telegram and (if the redeemed token carried an event) set it
+    as the rep's active event so captures auto-attribute. A Telegram user maps to
+    exactly one rep, so we also clear this telegram_user_id off any OTHER rep
+    (a phone re-bound to a different rep detaches from the old one).
 
-    Returns the conference_id the rep is now bound to (or None).
+    Returns the conference_id the rep is now active on (or None).
     """
     conn = db.get_conn()
     try:
-        row = conn.execute(
-            "SELECT telegram_link_token_event_id FROM reps WHERE id = ?",
-            (rep_id,),
-        ).fetchone()
-        conf_id = row["telegram_link_token_event_id"] if row else None
         conn.execute(
-            "UPDATE reps SET telegram_user_id = ?, telegram_link_token = NULL, "
-            "telegram_link_token_event_id = NULL, "
-            "active_conference_id = COALESCE(?, active_conference_id) "
-            "WHERE id = ?",
-            (telegram_user_id, conf_id, rep_id),
+            "UPDATE reps SET telegram_user_id = NULL WHERE telegram_user_id = ? "
+            "AND id != ?",
+            (telegram_user_id, rep_id),
         )
-        return conf_id
+        conn.execute(
+            "UPDATE reps SET telegram_user_id = ?, "
+            "active_conference_id = COALESCE(?, active_conference_id) WHERE id = ?",
+            (telegram_user_id, conference_id, rep_id),
+        )
+        return conference_id
     finally:
         conn.close()
 
@@ -126,13 +126,28 @@ def set_active_conference(rep_id: str, conference_id: Optional[str]) -> None:
         conn.close()
 
 
-def _rep_by_token(token: str) -> Optional[dict]:
+def _redeem_token(token: str) -> Optional[dict]:
+    """Resolve a (still-unredeemed) bind token to its rep + event, mark it
+    redeemed, and return {rep: <rep row>, conference_id}. None if invalid/used."""
     conn = db.get_conn()
     try:
-        row = conn.execute(
-            "SELECT * FROM reps WHERE telegram_link_token = ?", (token,)
+        tok = conn.execute(
+            "SELECT rep_id, conference_id FROM telegram_link_tokens "
+            "WHERE token = ? AND redeemed_at IS NULL",
+            (token,),
         ).fetchone()
-        return dict(row) if row else None
+        if not tok:
+            return None
+        rep = conn.execute(
+            "SELECT * FROM reps WHERE id = ?", (tok["rep_id"],)
+        ).fetchone()
+        if not rep:
+            return None
+        conn.execute(
+            "UPDATE telegram_link_tokens SET redeemed_at = ? WHERE token = ?",
+            (db.now_iso(), token),
+        )
+        return {"rep": dict(rep), "conference_id": tok["conference_id"]}
     finally:
         conn.close()
 
@@ -526,11 +541,12 @@ def _dispatch_update(update: dict) -> dict:
         if not token:
             send_message(chat_id, "Please use the connect link from the dashboard.")
             return {"action": "start_no_token"}
-        rep = _rep_by_token(token)
-        if not rep:
-            send_message(chat_id, "Invalid or expired link.")
+        redeemed = _redeem_token(token)
+        if not redeemed:
+            send_message(chat_id, "Invalid or already-used link.")
             return {"action": "start_invalid_token"}
-        bound_conf = _bind_rep(rep["id"], tg_user_id)
+        rep = redeemed["rep"]
+        bound_conf = _bind_rep(rep["id"], tg_user_id, redeemed["conference_id"])
         if bound_conf:
             conn = db.get_conn()
             try:

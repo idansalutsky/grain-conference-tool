@@ -53,10 +53,15 @@ def _seed_rep_unbound_with_token(token: str, conf_id: str | None = None) -> None
             (REP_ID, "Matrix Rep", "EU", db.now_iso()),
         )
         conn.execute(
-            "UPDATE reps SET telegram_user_id = NULL, telegram_link_token = ?, "
-            "telegram_link_token_event_id = ?, active_conference_id = NULL "
+            "UPDATE reps SET telegram_user_id = NULL, active_conference_id = NULL "
             "WHERE id = ?",
-            (token, conf_id, REP_ID),
+            (REP_ID,),
+        )
+        # New model: bind tokens live in their own table (many per rep coexist).
+        conn.execute(
+            "INSERT OR REPLACE INTO telegram_link_tokens "
+            "(token, rep_id, conference_id, created_at) VALUES (?,?,?,?)",
+            (token, REP_ID, conf_id, db.now_iso()),
         )
     finally:
         conn.close()

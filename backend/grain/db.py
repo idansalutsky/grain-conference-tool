@@ -157,6 +157,19 @@ CREATE TABLE IF NOT EXISTS reps (
 CREATE INDEX IF NOT EXISTS idx_reps_tg ON reps(telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_reps_active_conf ON reps(active_conference_id);
 
+-- One row per issued Telegram bind link. A rep can have MANY live tokens at
+-- once (one per event they're covering), so per-event connect links coexist
+-- instead of overwriting a single slot on the rep row. Redeeming a token binds
+-- the rep's Telegram and sets that token's event as their active event.
+CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+    token           TEXT PRIMARY KEY,
+    rep_id          TEXT NOT NULL,
+    conference_id   TEXT,
+    created_at      TEXT NOT NULL,
+    redeemed_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_tgtok_rep ON telegram_link_tokens(rep_id);
+
 CREATE TABLE IF NOT EXISTS settings (
     key             TEXT PRIMARY KEY,
     value           TEXT,

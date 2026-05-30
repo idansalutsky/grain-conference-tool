@@ -380,10 +380,21 @@ function Coverage({ conferenceId, conferenceName }: { conferenceId: string; conf
               </div>
               {links[a.rep_id] && (
                 <div className="mt-2 pt-2 border-t border-ink-100 text-xs">
-                  <div className="text-ink-500 mb-1">Open on {a.rep_name?.split(" ")[0]}'s phone:</div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-ink-500">Send to {a.rep_name?.split(" ")[0]} — connects them for this event:</span>
+                    <button
+                      className="btn-ghost h-6 !px-2 text-xs shrink-0"
+                      onClick={() => {
+                        const msg = `Connect your Telegram for ${conferenceName} — tap on your phone: ${links[a.rep_id].deep_link}`;
+                        navigator.clipboard?.writeText(msg)
+                          .then(() => toast("success", `Copied — send it to ${a.rep_name?.split(" ")[0]}`))
+                          .catch(() => toast("error", "Couldn't copy"));
+                      }}
+                    >📋 Copy</button>
+                  </div>
                   <a href={links[a.rep_id].deep_link} target="_blank" rel="noreferrer"
                      className="text-brand break-all hover:underline">{links[a.rep_id].deep_link}</a>
-                  <div className="text-ink-500 mt-1">@{links[a.rep_id].bot_username || "GrainSales_bot"} · one-time</div>
+                  <div className="text-ink-500 mt-1">@{links[a.rep_id].bot_username || "GrainSales_bot"} · one-time · binds to this event</div>
                 </div>
               )}
             </div>

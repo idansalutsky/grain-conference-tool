@@ -15,10 +15,11 @@ interface CoverageItem {
   city: string | null; country: string | null; tier: string | null; rep_id: string;
 }
 interface EventLink {
-  id: string; name: string; start_date: string | null; city: string | null; tier: string | null;
+  id: string; name: string; start_date: string | null; city: string | null;
+  tier: string | null; deep_link: string;
 }
 interface EventLinksResponse {
-  rep_id: string; rep_name: string; deep_link: string;
+  rep_id: string; rep_name: string;
   events: EventLink[]; message_text: string;
 }
 
@@ -154,9 +155,21 @@ export function TeamPage() {
                     <div className="rule-label">Trip handoff for {trip.rep_name}</div>
                     <pre className="card p-3 text-sm text-ink-800 whitespace-pre-wrap font-sans bg-ink-50">{trip.message_text}</pre>
                     {trip.events.length > 0 && (
-                      <div className="text-xs text-ink-500">
-                        {trip.events.length} {trip.events.length === 1 ? "event" : "events"}:{" "}
-                        {trip.events.map((e) => e.name).join(" · ")}
+                      <div className="space-y-1">
+                        <div className="rule-label">Per-event links</div>
+                        {trip.events.map((e) => (
+                          <div key={e.id} className="flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate text-ink-700">{e.name}</span>
+                            <button
+                              className="btn-ghost h-6 !px-2 text-xs shrink-0"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(e.deep_link)
+                                  .then(() => toast("success", `Copied ${e.name} link`))
+                                  .catch(() => toast("error", "Couldn't copy"));
+                              }}
+                            >📋 Copy link</button>
+                          </div>
+                        ))}
                       </div>
                     )}
                     <div className="flex gap-2">

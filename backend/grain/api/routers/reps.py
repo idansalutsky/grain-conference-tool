@@ -204,51 +204,44 @@ def rep_event_links(rep_id: str) -> dict:
     finally:
         conn.close()
 
-    events = [
-        {
-            "id": r["id"],
-            "name": r["name"],
-            "start_date": r["start_date"],
-            "city": r["city"],
-            "tier": r["tier"],
-        }
-        for r in rows
-    ]
-
-    # ONE identity bind token (no specific active event) → one link to redeem.
-    token = telegram.issue_link_token(rep_id)
-    deep_link = telegram.deep_link(token)
+    # One PER-EVENT bind link each: tapping it on the phone connects the rep to
+    # the bot AND sets that event as active, so captures auto-tag correctly.
+    events = []
+    for r in rows:
+        link = telegram.deep_link(telegram.issue_link_token(rep_id, r["id"]))
+        events.append({
+            "id": r["id"], "name": r["name"], "start_date": r["start_date"],
+            "city": r["city"], "tier": r["tier"], "deep_link": link,
+        })
 
     first_name = (rep["full_name"] or "").strip().split(" ")[0] or "there"
     if events:
         n = len(events)
         bullets = "\n".join(
-            _event_line(e["name"], e["city"], _fmt_when(e["start_date"]))
+            f"• {e['name']} ({e['city'] or '—'}, {_fmt_when(e['start_date']) or 'TBC'})\n"
+            f"  Connect for this event: {e['deep_link']}"
             for e in events
         )
         message_text = (
             f"Hi {first_name} — you're covering {n} "
-            f"{'event' if n == 1 else 'events'} this season:\n"
-            f"{bullets}\n\n"
-            "Tap to connect your Telegram for field capture "
-            f"(voice/photo/text → auto-logged): {deep_link}\n"
-            "Once connected, set your active event from the dashboard or just "
-            "start capturing."
+            f"{'event' if n == 1 else 'events'} this season. Tap the link under "
+            "each one when you're there and you're set to capture (voice / photo / "
+            f"text → auto-logged to that event):\n\n{bullets}\n\n"
+            "Each link connects your Telegram and sets that event as active. "
+            "Anything you send the bot is logged + you get instant intel back."
         )
     else:
+        # No coverage yet — still give an identity link so they can get set up.
+        deep_link = telegram.deep_link(telegram.issue_link_token(rep_id))
         message_text = (
             f"Hi {first_name} — no events are assigned to you yet, but you can "
-            "still get set up now.\n\n"
-            "Tap to connect your Telegram for field capture "
-            f"(voice/photo/text → auto-logged): {deep_link}\n"
-            "Once you're assigned to events, set your active one from the "
-            "dashboard and start capturing."
+            "still connect now and pick your event later:\n\n"
+            f"Connect Telegram: {deep_link}"
         )
 
     return {
         "rep_id": rep["id"],
         "rep_name": rep["full_name"],
-        "deep_link": deep_link,
         "events": events,
         "message_text": message_text,
     }
