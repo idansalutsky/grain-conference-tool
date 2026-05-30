@@ -41,9 +41,17 @@ app = FastAPI(
     ),
 )
 
+# CORS. The production deploy is single-origin (this service serves the SPA and
+# the API together), so the browser never makes a cross-origin call and CORS is
+# effectively unused. The default stays permissive for the optional split
+# (Vercel frontend + separate API) and local tooling; lock it down in production
+# by setting CORS_ALLOW_ORIGINS to a comma-separated allowlist of exact origins.
+_cors_origins = [
+    o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",") if o.strip()
+] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
