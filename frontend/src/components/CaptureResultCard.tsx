@@ -183,17 +183,6 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
             {result.resolution?.decision === "auto_merged" &&
               "Auto-merged into existing contact"}
             {result.resolution?.decision === "review_needed" && "Needs human review"}
-            {contactId && (
-              <>
-                {" · "}
-                <Link
-                  to={`/contacts/${contactId}`}
-                  className="text-brand hover:underline"
-                >
-                  open contact →
-                </Link>
-              </>
-            )}
           </div>
         </div>
         <div>

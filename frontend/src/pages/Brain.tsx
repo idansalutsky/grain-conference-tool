@@ -1,5 +1,6 @@
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast, toastErrorMessage } from "@/components/Toast";
@@ -140,6 +141,45 @@ interface RollupsResponse {
   count: number; // TOTAL — nothing dropped
   returned: number;
   rollups: Rollup[];
+}
+
+// ----- company name → id resolution ----------------------------------------
+//
+// Account rollups carry the company NAME in scope_id/title, not an id. To make
+// the title link to /companies/{id} we fetch the companies list once and build
+// a normalised name→id map (incl. name_variants). No match → no link.
+
+interface CompanyLite {
+  id: string;
+  name: string;
+  name_variants?: string[] | null;
+}
+
+function normCompanyName(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+/** Build a lookup from every known company name/variant to its id. */
+function buildCompanyMap(companies: CompanyLite[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const c of companies) {
+    if (!c?.id) continue;
+    const names = [c.name, ...(Array.isArray(c.name_variants) ? c.name_variants : [])];
+    for (const n of names) {
+      const key = typeof n === "string" ? normCompanyName(n) : "";
+      if (key && !map.has(key)) map.set(key, c.id);
+    }
+  }
+  return map;
+}
+
+/** Tolerate {items:[...]} or a bare array, mirroring Companies.tsx. */
+function normalizeCompanies(data: unknown): CompanyLite[] {
+  if (Array.isArray(data)) return data as CompanyLite[];
+  if (data && typeof data === "object" && Array.isArray((data as any).items)) {
+    return (data as any).items as CompanyLite[];
+  }
+  return [];
 }
 
 // ----- presentation helpers ------------------------------------------------
@@ -598,7 +638,17 @@ function FeatureChips({ scope, f }: { scope: RollupScope; f: Record<string, unkn
   );
 }
 
-function RollupCard({ scope, rollup }: { scope: RollupScope; rollup: Rollup }) {
+function RollupCard({
+  scope,
+  rollup,
+  titleHref,
+}: {
+  scope: RollupScope;
+  rollup: Rollup;
+  // Where the title should link, if a real entity target exists. Undefined =
+  // plain text (segments always; accounts with no matching company id).
+  titleHref?: string;
+}) {
   const meta = SCOPE_META[scope];
   const [open, setOpen] = useState(false);
   const [refine, setRefine] = useState(false);
@@ -620,32 +670,42 @@ function RollupCard({ scope, rollup }: { scope: RollupScope; rollup: Rollup }) {
       className={"card p-4 text-left " + (open ? "ring-2" : "")}
       style={open ? { boxShadow: `0 0 0 2px oklch(0.86 0.05 ${meta.hue})` } : undefined}
     >
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="flex-1 min-w-0">
+          {titleHref ? (
+            <Link
+              to={titleHref}
+              className="font-semibold text-ink-900 truncate block hover:underline hover:text-brand"
+              title={`Open ${rollup.title}`}
+            >
+              {rollup.title}
+            </Link>
+          ) : (
+            <div className="font-semibold text-ink-900 truncate">{rollup.title}</div>
+          )}
+          <div className="text-xs text-ink-500 font-mono truncate">{rollup.scope_id}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <Chip
+            hue={meta.hue}
+            title={`How loudly this asks for attention (priority ${rollup.priority.toFixed(2)})`}
+          >
+            {rollup.priority >= 0.66
+              ? "high priority"
+              : rollup.priority >= 0.33
+                ? "medium priority"
+                : "low priority"}
+          </Chip>
+          <span className="text-xs text-ink-500" title="L0 dots behind this one judged summary">
+            {rollup.source_count} source{rollup.source_count === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
       <button
         className="w-full text-left"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-ink-900 truncate">{rollup.title}</div>
-            <div className="text-xs text-ink-500 font-mono truncate">{rollup.scope_id}</div>
-          </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <Chip
-              hue={meta.hue}
-              title={`How loudly this asks for attention (priority ${rollup.priority.toFixed(2)})`}
-            >
-              {rollup.priority >= 0.66
-                ? "high priority"
-                : rollup.priority >= 0.33
-                  ? "medium priority"
-                  : "low priority"}
-            </Chip>
-            <span className="text-xs text-ink-500" title="L0 dots behind this one judged summary">
-              {rollup.source_count} source{rollup.source_count === 1 ? "" : "s"}
-            </span>
-          </div>
-        </div>
         <p className={"text-sm text-ink-700 " + (open ? "" : "line-clamp-2")}>{summary}</p>
       </button>
 
@@ -695,6 +755,32 @@ function RollupsSection() {
         query: { scope, sort: "priority", limit: 60 },
       }),
   });
+
+  // Fetched once, reused for every account rollup's name→id resolution.
+  const companiesQuery = useQuery({
+    queryKey: ["companies"],
+    queryFn: () => api.get<unknown>("/api/companies", { query: { limit: 300 } }),
+  });
+  const companyMap = useMemo(
+    () => buildCompanyMap(normalizeCompanies(companiesQuery.data)),
+    [companiesQuery.data],
+  );
+
+  // Resolve a rollup's link target. Events: scope_id IS the conference id.
+  // Accounts: scope_id/title is a company NAME → look up its id (else no link).
+  // Segments: no route target.
+  const hrefFor = (r: Rollup): string | undefined => {
+    if (r.scope_type === "event") {
+      return r.scope_id ? `/conferences/${r.scope_id}` : undefined;
+    }
+    if (r.scope_type === "account") {
+      const id =
+        companyMap.get(normCompanyName(r.scope_id || "")) ??
+        companyMap.get(normCompanyName(r.title || ""));
+      return id ? `/companies/${id}` : undefined;
+    }
+    return undefined;
+  };
 
   const rollups = data?.rollups || [];
 
@@ -753,7 +839,7 @@ function RollupsSection() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {rollups.map((r) => (
-          <RollupCard key={r.id} scope={scope} rollup={r} />
+          <RollupCard key={r.id} scope={scope} rollup={r} titleHref={hrefFor(r)} />
         ))}
       </div>
     </section>
@@ -1589,33 +1675,6 @@ export function BrainPage() {
 
         {showInternals && (
           <div className="space-y-10 mt-6 rise">
-            {/* The hierarchy, in one line — three tiers, bottom to top. */}
-            <div className="card p-3 sm:p-4">
-              <div className="rule-label mb-2">How the memory is layered</div>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm">
-                <span className="flex items-center gap-2 flex-1 min-w-0">
-                  <span className="stamp shrink-0" style={stampStyle("160", true)}>Raw</span>
-                  <span className="text-ink-500 truncate">
-                    every encounter &amp; contact — never dropped (the tables)
-                  </span>
-                </span>
-                <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
-                <span className="flex items-center gap-2 flex-1 min-w-0">
-                  <span className="stamp shrink-0" style={stampStyle("164")}>Rolled up</span>
-                  <span className="text-ink-500 truncate">
-                    one judged summary per account, event, segment
-                  </span>
-                </span>
-                <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
-                <span className="flex items-center gap-2 flex-1 min-w-0">
-                  <span className="stamp shrink-0" style={stampStyle("245")}>Brain</span>
-                  <span className="text-ink-500 truncate">
-                    cross-cutting spaces the whole team shares
-                  </span>
-                </span>
-              </div>
-            </div>
-
             {/* L2 — the brain's compressed cross-cutting memory. */}
             <SpacesSection />
             {/* L1 — middle-management rollups, one per entity. */}

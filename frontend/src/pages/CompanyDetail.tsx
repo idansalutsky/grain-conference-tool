@@ -137,8 +137,17 @@ export function CompanyDetailPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Stat label="People" value={data.people.length} />
         <Stat label="Conferences" value={data.conferences.length} />
-        <Stat label="Encounters" value={data.encounter_count} />
-        <Stat label="Meetings booked" value={data.meeting_count} accent />
+        <Stat
+          label="Encounters"
+          value={data.encounter_count}
+          href={data.encounters.length > 0 ? "#encounter-timeline" : undefined}
+        />
+        <Stat
+          label="Meetings booked"
+          value={data.meeting_count}
+          accent
+          href={data.encounters.length > 0 ? "#encounter-timeline" : undefined}
+        />
       </div>
 
       {/* ICP breakdown */}
@@ -243,7 +252,7 @@ export function CompanyDetailPage() {
 
       {/* Encounters timeline */}
       {data.encounters.length > 0 && (
-        <section className="card p-4">
+        <section id="encounter-timeline" className="card p-4">
           <h2 className="text-sm font-semibold mb-2">
             Encounter timeline ({data.encounters.length})
           </h2>
@@ -255,7 +264,16 @@ export function CompanyDetailPage() {
                 </span>
                 <span className="text-xs text-ink-500 w-16 shrink-0">{e.capture_mode}</span>
                 <span className="flex-1 text-xs">
-                  @ {e.conference_name || "—"}
+                  {e.conference_id ? (
+                    <Link
+                      to={`/conferences/${e.conference_id}`}
+                      className="text-ink-500 hover:text-brand"
+                    >
+                      @ {e.conference_name || e.conference_id.replace(/^conf-/, "")}
+                    </Link>
+                  ) : (
+                    <>@ {e.conference_name || "—"}</>
+                  )}
                 </span>
                 {e.meeting_requested ? (
                   <span className="badge bg-emerald-100 text-emerald-800">📅 mtg</span>
@@ -299,14 +317,23 @@ export function CompanyDetailPage() {
 }
 
 function Stat({
-  label, value, accent,
-}: { label: string; value: number; accent?: boolean }) {
-  return (
-    <div className={"card p-3 " + (accent ? "bg-emerald-50 border-emerald-200" : "")}>
+  label, value, accent, href,
+}: { label: string; value: number; accent?: boolean; href?: string }) {
+  const cls = "card p-3 block " + (accent ? "bg-emerald-50 border-emerald-200" : "");
+  const inner = (
+    <>
       <div className={"text-2xl font-bold " + (accent ? "text-emerald-800" : "")}>{value}</div>
       <div className="text-xs text-ink-500">{label}</div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <a href={href} className={cls + " hover:border-ink-300 transition"}>
+        {inner}
+      </a>
+    );
+  }
+  return <div className={cls}>{inner}</div>;
 }
 
 function BreakdownPart({

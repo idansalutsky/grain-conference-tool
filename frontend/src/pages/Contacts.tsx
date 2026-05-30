@@ -27,10 +27,8 @@ export function ContactsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">People</h1>
       <p className="text-sm text-ink-500 mb-4">
-        Everyone you've met, resolved into one record per person across every
-        conference — with the relationship read.
+        Everyone you've met, resolved into one record per person.
       </p>
       <SubTabs items={PEOPLE_TABS} />
 

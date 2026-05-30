@@ -43,9 +43,8 @@ export function NudgesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">People</h1>
       <p className="text-sm text-ink-500 mb-4">
-        Everyone you've met across every conference — with the relationship read.
+        Who to act on now — the contacts worth a follow-up today.
       </p>
       <SubTabs items={PEOPLE_TABS} />
 

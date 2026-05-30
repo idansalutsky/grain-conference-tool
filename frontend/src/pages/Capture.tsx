@@ -196,9 +196,7 @@ export function CapturePage() {
       <section className="card p-5 mb-4">
         <div className="label mb-2">📱 Telegram — voice, photo &amp; text from the floor</div>
         <p className="text-sm text-ink-700 max-w-[60ch]">
-          Reps capture hands-free in Telegram — fire off a voice memo, snap a
-          badge, or type a line, and it lands here as a structured lead. Best for
-          when you're walking the floor and don't want to open the app.
+          Capture hands-free from your phone — it lands here as a structured lead.
         </p>
         <button
           onClick={() => issueTgToken.mutate()}

@@ -100,10 +100,8 @@ export function CompaniesPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">People</h1>
       <p className="text-sm text-ink-500 mb-4 max-w-[60ch]">
-        Accounts surfaced across every conference — one record per company,
-        ranked by how many people we've met there.
+        The accounts — one record per company, ranked by people met.
       </p>
       <SubTabs items={PEOPLE_TABS} />
 

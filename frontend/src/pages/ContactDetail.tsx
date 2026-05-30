@@ -100,7 +100,17 @@ export function ContactDetailPage() {
                 <div key={e.id} className="border-l border-ink-200 pl-3">
                   <div className="text-xs text-ink-500 font-mono">
                     {e.captured_at?.slice(0, 10)} · {e.capture_mode}
-                    {e.conference_id && <> · {e.conference_id}</>}
+                    {e.conference_id && (
+                      <>
+                        {" · "}
+                        <Link
+                          to={`/conferences/${e.conference_id}`}
+                          className="text-brand hover:underline"
+                        >
+                          {e.conference_name || e.conference_id.replace(/^conf-/, "")}
+                        </Link>
+                      </>
+                    )}
                   </div>
                   <div className="text-sm text-ink-700 mt-0.5">
                     {e.structured?.what_discussed || e.raw_input?.slice(0, 200) || "—"}

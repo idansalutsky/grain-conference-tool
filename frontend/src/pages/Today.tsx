@@ -116,7 +116,7 @@ export function TodayPage() {
           <div>
             <h2 className="masthead text-xl leading-none">Make these calls today</h2>
             <p className="text-sm text-ink-500 mt-1.5">
-              People whose situation just changed — caught across every conference you've worked.
+              People whose situation just changed — across every conference you've worked.
             </p>
           </div>
           {nudges.length > 0 && (
@@ -153,12 +153,6 @@ export function TodayPage() {
                   <Link to={`/contacts/${n.id}`} className="btn-primary text-xs mt-3">
                     Open contact →
                   </Link>
-                  <Link
-                    to={`/contacts/${n.id}`}
-                    className="text-xs text-ink-500 hover:text-ink-900 hover:underline mt-3"
-                  >
-                    Draft follow-up
-                  </Link>
                 </div>
               </article>
             ))}
@@ -170,8 +164,7 @@ export function TodayPage() {
                 quiet
               </span>
               <p className="text-sm text-ink-700 max-w-prose">
-                No follow-ups firing — by design. The gate stays silent on weak signal and only
-                surfaces a contact when several reads agree. Capture more encounters and they'll appear here.
+                No follow-ups firing — by design. Capture more encounters and they'll appear here.
               </p>
             </div>
           </div>
