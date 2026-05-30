@@ -13,15 +13,17 @@ router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 class DiscoverRequest(BaseModel):
     region: Optional[str] = None
+    vertical: Optional[str] = None
     max_results: int = 6
 
 
 @router.post("/conferences", status_code=201)
 def discover(body: DiscoverRequest) -> dict:
-    """Hit grounded search → propose new conferences. Each proposal also lands
-    in the pending-approval queue."""
+    """Iterative grounded research → propose new conferences (with a refinement
+    pass if the first is thin). Each proposal lands in the pending-approval queue."""
     return discovery.discover_conferences(
-        region_hint=body.region, max_results=body.max_results,
+        region_hint=body.region, vertical_hint=body.vertical,
+        max_results=body.max_results,
     )
 
 

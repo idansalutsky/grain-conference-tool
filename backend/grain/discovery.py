@@ -107,43 +107,13 @@ DISCOVERY_SYSTEM = (
 )
 
 
-def discover_conferences(*,
-                         region_hint: Optional[str] = None,
-                         max_results: int = 6) -> dict:
-    """Return a list of proposed (new) conferences with citations.
-
-    Each proposal is also logged to `feedback` so the UI can show the
-    pending approval queue. Returns {proposals, citations, raw_text}.
-    """
-    icp = IcpConfig.default()
-    verticals = ", ".join(icp.company_level["verticals"])
-    anchors = ", ".join(icp.anchor_events_known_attended[:6])
-
-    region_clause = f"in the {region_hint} region" if region_hint else "globally"
-    query = (
-        f"List the next {max_results} upcoming conferences {region_clause} "
-        f"most relevant to Grain Finance's ICP (verticals: {verticals}). "
-        f"EXCLUDE these well-known anchor events we already track: {anchors}. "
-        "Focus on under-indexed events where CFOs, treasurers, heads of "
-        "payments, or cross-border payment / travel-platform executives "
-        "actually attend. For each, give: name, city, country, exact start "
-        "date, vertical, one-sentence why_relevant, estimated_attendance if "
-        "known, and a source_url citation. Output only JSON."
-    )
-
-    try:
-        text, citations = llm.search_grounded(query, system=DISCOVERY_SYSTEM)
-    except llm.LLMError as exc:
-        log.warning("discovery search failed: %s", exc)
-        return {"proposals": [], "citations": [], "error": str(exc)}
-
-    # The model is asked to reply with JSON, but Sonar sometimes wraps it in
-    # prose. Try strict JSON first; fall back to first { ... } substring.
-    proposals: list[dict] = []
+def _parse_proposals(text: str) -> list[dict]:
+    """Sonar usually returns JSON but sometimes wraps it in prose. Try strict
+    JSON, then the first {...} substring."""
     try:
         parsed = json.loads(text)
         if isinstance(parsed.get("proposals"), list):
-            proposals = parsed["proposals"]
+            return parsed["proposals"]
     except (json.JSONDecodeError, AttributeError):
         import re
         m = re.search(r"\{[\s\S]*\}", text)
@@ -151,49 +121,94 @@ def discover_conferences(*,
             try:
                 parsed = json.loads(m.group(0))
                 if isinstance(parsed.get("proposals"), list):
-                    proposals = parsed["proposals"]
+                    return parsed["proposals"]
             except json.JSONDecodeError:
                 pass
+    return []
 
-    # Filter the model's proposals before persisting:
-    #   DEFECT 9  — drop anything already in the conferences table (normalised
-    #               name match) or already queued as a pending proposal.
-    #   DEFECT 11 — drop stale / past-dated events (only today-or-future).
+
+def discover_conferences(*,
+                         region_hint: Optional[str] = None,
+                         vertical_hint: Optional[str] = None,
+                         max_results: int = 6) -> dict:
+    """Iteratively research NEW (untracked) conferences for Grain's ICP.
+
+    Agentic, not single-shot: it runs a grounded search, drops dupes/stale/past,
+    and — if the first pass came back thin (mostly events we already know) — runs
+    ONE refinement pass that explicitly excludes what it just found and asks for
+    different events. Optionally gap-targeted via `vertical_hint`. Each kept
+    proposal is logged to `feedback` for the approval queue.
+    Returns {proposals, citations, iterations, skipped_*}.
+    """
+    icp = IcpConfig.default()
+    verticals = ", ".join(icp.company_level["verticals"])
+    anchors = ", ".join(icp.anchor_events_known_attended[:6])
+    region_clause = f"in the {region_hint} region" if region_hint else "globally"
+    focus = f" Focus especially on {vertical_hint} events." if vertical_hint else ""
+
     today = _today()
     known = _existing_conference_names() | _pending_proposal_names()
-    skipped_dupe = 0
-    skipped_stale = 0
     seen_this_run: set[str] = set()
-
     saved: list[dict] = []
-    for p in proposals:
-        if not isinstance(p, dict) or not p.get("name"):
-            continue
-        norm = _norm_conf_name(p["name"])
-        if norm in known or norm in seen_this_run:
-            skipped_dupe += 1
-            continue
-        if not _proposal_is_upcoming(p.get("start_date"), today):
-            skipped_stale += 1
-            continue
-        seen_this_run.add(norm)
-        proposal_id = "disc_" + uuid.uuid4().hex[:14]
-        db.log_feedback(
-            decision_kind="conference_discovery_proposal",
-            target_kind="conference",
-            target_id=proposal_id,
-            after={**p, "citations": citations},
-            reason=p.get("why_relevant"),
-            decided_by="discovery_agent",
-        )
-        saved.append({"proposal_id": proposal_id, **p})
+    all_citations: list[dict] = []
+    skipped_dupe = skipped_stale = 0
+    last_err: Optional[str] = None
+    MAX_PASSES = 2
+
+    passes = 0
+    for attempt in range(MAX_PASSES):
+        passes = attempt + 1
         if len(saved) >= max_results:
             break
+        exclude_found = (
+            " Do NOT repeat any of these you already listed: "
+            + "; ".join(s["name"] for s in saved) + "."
+        ) if saved else ""
+        query = (
+            f"List {max_results} upcoming conferences {region_clause} most "
+            f"relevant to Grain Finance's ICP (verticals: {verticals}).{focus} "
+            f"EXCLUDE these anchor events we already track: {anchors}.{exclude_found} "
+            "Focus on under-indexed events where CFOs, treasurers, heads of "
+            "payments, or cross-border payment / travel-platform executives "
+            "actually attend. For each, give: name, city, country, exact start "
+            "date, vertical, one-sentence why_relevant, estimated_attendance if "
+            "known, and a source_url citation. Output only JSON."
+        )
+        try:
+            text, citations = llm.search_grounded(query, system=DISCOVERY_SYSTEM)
+        except llm.LLMError as exc:
+            last_err = str(exc)
+            log.warning("discovery search failed (pass %d): %s", passes, exc)
+            break
+        all_citations.extend(citations or [])
+        for p in _parse_proposals(text):
+            if not isinstance(p, dict) or not p.get("name"):
+                continue
+            norm = _norm_conf_name(p["name"])
+            if norm in known or norm in seen_this_run:
+                skipped_dupe += 1
+                continue
+            if not _proposal_is_upcoming(p.get("start_date"), today):
+                skipped_stale += 1
+                continue
+            seen_this_run.add(norm)
+            proposal_id = "disc_" + uuid.uuid4().hex[:14]
+            db.log_feedback(
+                decision_kind="conference_discovery_proposal",
+                target_kind="conference", target_id=proposal_id,
+                after={**p, "citations": citations},
+                reason=p.get("why_relevant"), decided_by="discovery_agent",
+            )
+            saved.append({"proposal_id": proposal_id, **p})
+            if len(saved) >= max_results:
+                break
 
+    if not saved and last_err:
+        return {"proposals": [], "citations": [], "error": last_err}
     return {
         "proposals": saved,
-        "citations": citations,
-        "raw_text_preview": text[:500],
+        "citations": all_citations,
+        "iterations": passes,
         "skipped_duplicates": skipped_dupe,
         "skipped_stale": skipped_stale,
     }
