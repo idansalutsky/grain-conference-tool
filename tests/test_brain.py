@@ -332,7 +332,23 @@ def test_capture_path_writes_relationship():
 # ---------------------------------------------------------------------------
 # Full graph — discovery interrupt → resume cycle
 # ---------------------------------------------------------------------------
-def test_discovery_interrupt_then_resume_writes_events():
+def test_discovery_interrupt_then_resume_writes_events(monkeypatch):
+    # Inject a REAL proposal (the hermetic no-key path returns a placeholder,
+    # which is deliberately skipped — see Option B). This exercises the real
+    # path: approve a discovery → it writes to the events space AND becomes a
+    # real, scored conference.
+    from grain import llm
+    from grain.brain import nodes
+    real = [{
+        "name": "LATAM Treasury Forum (test) 2026", "city": "Lima",
+        "country": "Peru", "region": "LATAM", "start_date": "2026-09-01",
+        "vertical": "treasury", "source_url": "https://example.com/latam",
+        "why_relevant": "LATAM corporate treasurers with heavy FX exposure",
+        "estimated_attendance": 500,
+    }]
+    monkeypatch.setattr(llm.config, "OPENROUTER_API_KEY", "test-key", raising=False)
+    monkeypatch.setattr(nodes, "_llm_propose_events", lambda **kw: [dict(real[0])])
+
     tid = _tid()
     first = graphs.run_brain(
         "find treasury events in LATAM we don't already have", tid)
@@ -353,6 +369,17 @@ def test_discovery_interrupt_then_resume_writes_events():
     # At least one accepted event landed in the events space.
     ev_writes = [w for w in resumed["writes"] if w["space"] == "events"]
     assert ev_writes, f"expected an events write after approval, got {resumed['writes']}"
+    # Option B: the approved discovery became a REAL, scoreable conference.
+    cid = ev_writes[0].get("conference_id")
+    assert cid, "approved discovery should create a real conference"
+    from grain import db as _db
+    conn = _db.get_conn()
+    try:
+        row = conn.execute(
+            "SELECT name FROM conferences WHERE id = ?", (cid,)).fetchone()
+    finally:
+        conn.close()
+    assert row is not None, "the created conference should exist in the table"
 
 
 def test_discovery_resume_rejecting_all_writes_nothing():
