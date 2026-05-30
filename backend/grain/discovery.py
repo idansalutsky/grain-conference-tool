@@ -294,8 +294,74 @@ def list_pending_proposals(limit: int = 50) -> list[dict]:
     return out
 
 
+def create_conference_from_payload(payload: dict, *, decided_by: str = "ui",
+                                   source: str = "discovery") -> dict:
+    """Promote a discovered-event payload into a real, scored conferences row.
+
+    Shared by the Discovery page (`approve_proposal`) AND the Events Brain's
+    discovery gate, so an approved brain discovery becomes a real conference you
+    can score and plan around — not a dead-end memory entry. Returns
+    {conference_id, created}.
+
+    Idempotent on name: if a conference with the same normalised name already
+    exists, returns it (created=False) instead of creating a duplicate — so the
+    Brain and the Discovery page can never produce two copies of one event.
+    """
+    name = (payload.get("name") or "").strip() or "Unknown"
+    # Defensive: refuse the no-key placeholder / empty-shell payloads so a junk
+    # "sample - configure a search key…" row can never reach the conferences table.
+    if name.lower().startswith("sample - configure") \
+            or "placeholder" in (payload.get("provenance") or "").lower():
+        return {"conference_id": None, "created": False, "skipped": "placeholder"}
+    norm = _norm_conf_name(name)
+    conn = db.get_conn()
+    try:
+        for r in conn.execute("SELECT id, name FROM conferences").fetchall():
+            if _norm_conf_name(r["name"]) == norm:
+                return {"conference_id": r["id"], "created": False}
+    finally:
+        conn.close()
+
+    # Carry region/format/attendance so an approved discovery scores on the same
+    # footing as a seeded event (else geo/reachability/buyer factors degrade).
+    region = (payload.get("region") or _region_for_country(payload.get("country")) or "")
+    region = region.upper() or None
+    fmt = payload.get("format") or "conference"
+    attendance = payload.get("estimated_attendance")
+    if attendance in (None, "", 0):
+        attendance = _estimate_attendance(fmt)
+
+    new_id = "c_disc_" + uuid.uuid4().hex[:12]
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO conferences (id, name, start_date, city, country, region, "
+            "format, vertical, estimated_attendance, website, themes, "
+            "created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                new_id, name, payload.get("start_date"), payload.get("city"),
+                payload.get("country"), region, fmt, payload.get("vertical"),
+                attendance, payload.get("source_url"), payload.get("why_relevant"),
+                db.now_iso(), db.now_iso(),
+            ),
+        )
+    finally:
+        conn.close()
+
+    db.log_feedback(
+        decision_kind="conference_created",
+        target_kind="conference", target_id=new_id,
+        after={"conference_id": new_id, "source": source, **payload},
+        decided_by=decided_by,
+    )
+    from . import scoring
+    scoring.rescore_all()  # cheap — rescores the table in ~300ms
+    return {"conference_id": new_id, "created": True}
+
+
 def approve_proposal(proposal_id: str, *, decided_by: str = "ui") -> dict:
-    """Promote a proposal into a real conferences row. Returns {conference_id}."""
+    """Promote a Discovery-page proposal into a real conferences row."""
     conn = db.get_conn()
     try:
         row = conn.execute(
@@ -313,54 +379,15 @@ def approve_proposal(proposal_id: str, *, decided_by: str = "ui") -> dict:
     except (json.JSONDecodeError, TypeError):
         payload = {}
 
-    # DEFECT 10: previously only name/date/city/country/vertical were carried
-    # through, so region / format / estimated_attendance fell back to defaults
-    # and three scoring factors (geo_cost_efficiency, reachability,
-    # buyer_reachability) degraded. Derive/carry them so an approved discovery
-    # scores on the same footing as a seeded event.
-    region = (payload.get("region") or _region_for_country(payload.get("country")) or "")
-    region = region.upper() or None
-    fmt = payload.get("format") or "conference"   # sensible default open format
-    attendance = payload.get("estimated_attendance")
-    if attendance in (None, "", 0):
-        attendance = _estimate_attendance(fmt)
-
-    new_id = "c_disc_" + uuid.uuid4().hex[:12]
-    conn = db.get_conn()
-    try:
-        conn.execute(
-            "INSERT INTO conferences (id, name, start_date, city, country, region, "
-            "format, vertical, estimated_attendance, website, themes, "
-            "created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                new_id,
-                payload.get("name") or "Unknown",
-                payload.get("start_date"),
-                payload.get("city"),
-                payload.get("country"),
-                region,
-                fmt,
-                payload.get("vertical"),
-                attendance,
-                payload.get("source_url"),
-                payload.get("why_relevant"),
-                db.now_iso(), db.now_iso(),
-            ),
-        )
-    finally:
-        conn.close()
-
+    result = create_conference_from_payload(
+        payload, decided_by=decided_by, source="discovery")
+    new_id = result["conference_id"]
     db.log_feedback(
         decision_kind="conference_discovery_approved",
         target_kind="conference", target_id=proposal_id,
         after={"conference_id": new_id, **payload},
         decided_by=decided_by,
     )
-
-    # Re-score the new one
-    from . import scoring
-    scoring.rescore_all()  # cheap — 80 conferences in ~300ms
     return {"conference_id": new_id, "proposal": payload}
 
 

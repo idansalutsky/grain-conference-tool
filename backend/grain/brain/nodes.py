@@ -744,6 +744,24 @@ def memory_writer_node(state: BrainState) -> BrainState:
             continue
         if kind == "discover_events":
             p = d.get("candidate") or {}
+            # Never let the no-key placeholder ("sample - configure a search
+            # key…") become a real conference or pollute the events space, even
+            # if a human clicks approve on it — it's a notice, not an event.
+            _name = (p.get("name") or "").strip().lower()
+            if "placeholder" in (p.get("provenance") or "").lower() \
+                    or _name.startswith("sample - configure"):
+                continue
+            # The Events Brain CREATES the event: an approved discovery becomes a
+            # real, scored conference you can plan around — not a dead-end memory
+            # entry. Reuses the same creator as the Discovery page (dedup-safe).
+            conference_id = None
+            try:
+                from .. import discovery as _discovery
+                res = _discovery.create_conference_from_payload(
+                    p, decided_by="brain", source="events_brain")
+                conference_id = res.get("conference_id")
+            except Exception as exc:  # noqa: BLE001 — never let creation break the run
+                log.info("brain discovery -> conference creation failed: %s", exc)
             item_key = spaces._known_event_signature(p.get("name") or "") \
                 or (d.get("id") or uuid.uuid4().hex[:8])
             w = spaces.write_item(
@@ -754,11 +772,12 @@ def memory_writer_node(state: BrainState) -> BrainState:
                  "start_date": p.get("start_date"), "vertical": p.get("vertical"),
                  "estimated_attendance": p.get("estimated_attendance"),
                  "source_url": p.get("source_url"),
-                 "why_relevant": p.get("why_relevant")},
+                 "why_relevant": p.get("why_relevant"),
+                 "conference_id": conference_id},
                 provenance=f"discovery:{p.get('source_url') or 'agent'}",
                 salience=0.7,
             )
-            writes.append({"space": "events", **w})
+            writes.append({"space": "events", "conference_id": conference_id, **w})
         else:  # capture → relationship (+ a playbook signal)
             c = d.get("candidate") or {}
             comp = c.get("compressed") or {}
