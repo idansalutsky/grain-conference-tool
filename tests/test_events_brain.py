@@ -98,6 +98,47 @@ def test_mentioned_events_signal_aggregates_and_marks_tracked():
     assert sig["Phantom Forum 2026"]["count"] >= 2
 
 
+def test_research_mentioned_events_confirms_and_reports_not_found(monkeypatch):
+    """The loop: untracked buyer-mentioned events get researched — a verifiable
+    upcoming one becomes a pending proposal; an unconfirmable one is reported in
+    not_found (the agent says it looked and came up empty, never fabricates)."""
+    import json as _json
+    from grain import llm
+    # Seed two untracked mentions on a contact.
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts (id, primary_name, created_at, "
+            "updated_at) VALUES ('c-men1','Mention Source',?,?)",
+            (db.now_iso(), db.now_iso()),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO encounters (id, contact_id, conference_id, "
+            "captured_at, capture_mode, structured_json) VALUES (?,?,?,?,?,?)",
+            ("e-men1", "c-men1", None, db.now_iso(), "telegram",
+             _json.dumps({"name": "Mention Source",
+                          "mentioned_events": ["Zephyr Treasury Forum 2099",
+                                               "Defunct Ghost Expo"]})),
+        )
+    finally:
+        conn.close()
+
+    # Grounded search confirms only the real one, with a far-future date.
+    def fake_search(query, **kw):
+        return _json.dumps({"proposals": [{
+            "name": "Zephyr Treasury Forum 2099", "city": "Zurich",
+            "country": "Switzerland", "region": "EU", "vertical": "treasury",
+            "start_date": "2099-09-01", "why_relevant": "treasurers",
+            "source_url": "https://example.com/zephyr",
+        }]}), []
+    monkeypatch.setattr(discovery.llm, "search_grounded", fake_search)
+
+    res = discovery.research_mentioned_events()
+    names = [p["name"] for p in res["proposals"]]
+    assert any("Zephyr" in n for n in names), names
+    assert "Defunct Ghost Expo" in res["not_found"]
+
+
 def test_creation_is_idempotent_on_name():
     payload = {
         "name": "Test Dedup Summit 2026", "region": "EU", "vertical": "payments",

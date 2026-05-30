@@ -77,12 +77,16 @@ def _ts(date_str: str) -> str:
 def _capture(
     *, name, company, title, vertical, discussed, signals, sentiment,
     meeting, when, conf_like, email=None, linkedin=None, rep_id="rep-na-01",
+    mentioned=None,
 ) -> dict:
     structured = {
         "name": name, "company": company, "title": title, "vertical": vertical,
         "what_discussed": discussed, "soft_signals": signals,
         "sentiment": sentiment, "meeting_requested": meeting,
         "email": email, "linkedin": linkedin, "transcript": discussed,
+        # Events the contact said they attend/are going to — feeds the
+        # "events your buyers mention" signal + the research-the-loop flow.
+        "mentioned_events": mentioned or [],
     }
     enc_id = "enc_demo_" + uuid.uuid4().hex[:12]
     conf_id = _conf_id(conf_like)
@@ -149,7 +153,8 @@ def build() -> None:
                  discussed="Big FX pain on hotel payouts across EUR/GBP/USD; "
                  "curious how embedded hedging would work for their platform.",
                  signals=["explicit_pain", "strong_fit_signal"], sentiment=4,
-                 meeting=False, linkedin="linkedin.com/in/sarahcohen")
+                 meeting=False, linkedin="linkedin.com/in/sarahcohen",
+                 mentioned=["Sibos", "Fintech Nexus"])
     sarah_id = r.get("contact_id")
     _capture(name="Sara Cohen", company="Booking.com", title="VP Treasury",
              vertical="travel", when="2025-10-26", conf_like=M2020_USA,
@@ -171,7 +176,8 @@ def build() -> None:
                  discussed="Cross-border settlement volume growing fast; "
                  "interested in risk-adjusted pricing.",
                  signals=["strong_fit_signal"], sentiment=4, meeting=False,
-                 email="m.schmidt@adyen.com")
+                 email="m.schmidt@adyen.com",
+                 mentioned=["Sibos", "Token2049 Singapore"])
     mike_id = r.get("contact_id")
     _capture(name="Mike Schmidt", company="Adyen", title="Head of Payments",
              vertical="payments", when="2025-10-26", conf_like=M2020_USA,

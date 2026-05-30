@@ -41,6 +41,27 @@ export function DiscoveryPage() {
     onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
+  // Close the loop: research the untracked events buyers mentioned — verify each
+  // + find its next occurrence → pending proposals you approve.
+  const researchMentioned = useMutation({
+    mutationFn: () =>
+      api.post<{ researched: number; proposals: any[]; not_found: string[] }>(
+        "/api/discovery/mentioned/research",
+      ),
+    onSuccess: (d) => {
+      qc.invalidateQueries({ queryKey: ["discovery-pending"] });
+      qc.invalidateQueries({ queryKey: ["discovery-mentioned"] });
+      const found = d.proposals?.length || 0;
+      toast(
+        "success",
+        found
+          ? `Verified ${found} — added to the approval queue below`
+          : "Researched — none could be confirmed as upcoming events",
+      );
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
   const approve = useMutation({
     mutationFn: (id: string) => api.post<any>(`/api/discovery/${id}/approve`),
     onSuccess: () => {
@@ -117,11 +138,25 @@ export function DiscoveryPage() {
 
       {!!mentioned.data?.events?.length && (
         <section className="card p-4 mb-4">
-          <div className="label mb-1">Events your buyers mention</div>
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="label">Events your buyers mention</div>
+            {mentioned.data.events.some((e: any) => !e.tracked) && (
+              <button
+                onClick={() => researchMentioned.mutate()}
+                disabled={researchMentioned.isPending}
+                className="btn-primary text-xs shrink-0"
+              >
+                {researchMentioned.isPending
+                  ? "Researching…"
+                  : "Research the untracked →"}
+              </button>
+            )}
+          </div>
           <p className="text-xs text-ink-500 mb-3 max-w-[60ch]">
-            Pulled from real conversations — when a contact tells a rep where
-            they go, that's a signal. An event several buyers mention that we
-            don't track yet is a strong one to add.
+            Pulled from real conversations — when a contact tells a rep where they
+            go, that's a signal. Research the untracked ones and the agent
+            verifies each + finds its next date; confirmed ones drop into the
+            approval queue below (nothing is added without your call).
           </p>
           <div className="flex flex-wrap gap-2">
             {mentioned.data.events.map((e: any) => (
@@ -133,13 +168,23 @@ export function DiscoveryPage() {
                     ? "bg-ink-100 text-ink-600"
                     : "bg-amber-100 text-amber-900 border border-amber-300")
                 }
-                title={`${e.contacts} contact(s) mentioned this`}
+                title={
+                  e.tracked
+                    ? `${e.contacts} contact(s) mentioned this — already tracked`
+                    : `${e.contacts} contact(s) mentioned this — not in your events yet`
+                }
               >
                 {e.name} · {e.contacts}
-                {!e.tracked && " · not tracked"}
+                {e.tracked ? " · tracked" : " · not tracked"}
               </span>
             ))}
           </div>
+          {researchMentioned.data?.not_found?.length ? (
+            <p className="text-xs text-ink-500 mt-3">
+              Couldn't confirm as upcoming events:{" "}
+              {researchMentioned.data.not_found.join(", ")}.
+            </p>
+          ) : null}
         </section>
       )}
 

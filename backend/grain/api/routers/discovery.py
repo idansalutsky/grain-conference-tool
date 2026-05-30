@@ -39,6 +39,15 @@ def mentioned_events(limit: int = 12) -> dict:
     return {"events": discovery.mentioned_events_signal(limit)}
 
 
+@router.post("/mentioned/research")
+def research_mentioned(limit: int = 8) -> dict:
+    """Research the untracked buyer-mentioned events: verify each + find its next
+    occurrence (grounded), turn confirmed ones into pending proposals, and report
+    the ones the agent couldn't confirm. Human still approves before anything is
+    added."""
+    return discovery.research_mentioned_events(limit)
+
+
 class ApprovalBody(BaseModel):
     decided_by: Optional[str] = "ui"
 

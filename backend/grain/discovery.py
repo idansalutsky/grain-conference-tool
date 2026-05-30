@@ -365,6 +365,79 @@ def mentioned_events_signal(limit: int = 12) -> list[dict]:
     return out[:limit]
 
 
+def research_mentioned_events(limit: int = 8) -> dict:
+    """Close the loop on buyer-mentioned events.
+
+    Takes the events our contacts MENTIONED that we don't already track, and
+    researches each with a grounded search to verify it's real and find its NEXT
+    upcoming occurrence (date / city / vertical / source). Verified ones become
+    PENDING proposals (human-approved, NEVER auto-added), tagged with how many
+    buyers mentioned them. Events the agent can't confirm come back in
+    `not_found` so the rep knows it looked and came up empty. A PAST mention
+    resolves to the event's next future edition. Returns
+    {researched, proposals, not_found}.
+    """
+    signal = mentioned_events_signal(limit=30)
+    untracked = [s for s in signal if not s.get("tracked")][:limit]
+    if not untracked:
+        return {"researched": 0, "proposals": [], "not_found": []}
+    mention_counts = {_norm_conf_name(s["name"]): s.get("contacts", 1)
+                      for s in untracked}
+    names = [s["name"] for s in untracked]
+
+    query = (
+        "Our sales contacts mentioned these events in conversation: "
+        + "; ".join(names) + ". "
+        "For EACH that is a REAL, currently-operating conference, return its NEXT "
+        "upcoming (today-or-future) occurrence with: name, city, country, region "
+        "(LATAM|EU|NA|APAC|MEA), exact start_date (YYYY-MM-DD), vertical, a "
+        "one-sentence why_relevant for a cross-border-FX fintech, and a "
+        "source_url. If a mention refers to a PAST event, give its next future "
+        "edition. OMIT any you cannot verify as real. Output only JSON "
+        '{"proposals":[...]}.'
+    )
+    try:
+        text, citations = llm.search_grounded(query, system=DISCOVERY_SYSTEM)
+    except llm.LLMError as exc:
+        return {"researched": len(names), "proposals": [],
+                "not_found": names, "error": str(exc)}
+
+    today = _today()
+    known = _existing_conference_names() | _pending_proposal_names()
+    seen: set[str] = set()
+    saved: list[dict] = []
+    confirmed: set[str] = set()  # mention norms that produced an upcoming proposal
+    for p in _parse_proposals(text):
+        if not isinstance(p, dict) or not p.get("name"):
+            continue
+        norm = _norm_conf_name(p["name"])
+        if norm in known or norm in seen:
+            continue
+        if not _proposal_is_upcoming(p.get("start_date"), today):
+            continue  # not a verifiable UPCOMING edition → leave it as not-found
+        seen.add(norm)
+        # Tie this confirmed upcoming event back to the mention(s) it answers.
+        matched_here = [mn for mn in mention_counts
+                        if mn and (mn in norm or norm in mn)]
+        for mn in matched_here:
+            confirmed.add(mn)
+        pid = "disc_" + uuid.uuid4().hex[:14]
+        db.log_feedback(
+            decision_kind="conference_discovery_proposal",
+            target_kind="conference", target_id=pid,
+            after={**p, "citations": citations, "provenance": "buyer-mentioned",
+                   "mentioned_by": mention_counts.get(matched_here[0])
+                   if matched_here else None},
+            reason=p.get("why_relevant"), decided_by="mentioned_research_agent",
+        )
+        saved.append({"proposal_id": pid, **p, "provenance": "buyer-mentioned"})
+
+    # Honest reporting: anything we couldn't confirm as an UPCOMING event.
+    not_found = [s["name"] for s in untracked
+                 if _norm_conf_name(s["name"]) not in confirmed]
+    return {"researched": len(names), "proposals": saved, "not_found": not_found}
+
+
 def create_conference_from_payload(payload: dict, *, decided_by: str = "ui",
                                    source: str = "discovery") -> dict:
     """Promote a discovered-event payload into a real, scored conferences row.
