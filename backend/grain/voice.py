@@ -219,13 +219,16 @@ def _normalize_lead(structured: dict) -> dict:
     out["meeting_requested"] = bool(out.get("meeting_requested"))
     # mentioned_events must be a list of non-empty strings — the model sometimes
     # returns a bare string or null, which would break downstream aggregation.
-    me = out.get("mentioned_events")
-    if isinstance(me, str):
-        me = [me]
-    out["mentioned_events"] = (
-        [e.strip() for e in me if isinstance(e, str) and e.strip()]
-        if isinstance(me, list) else []
-    )
+    def _as_str_list(v):
+        if isinstance(v, str):
+            v = [v]
+        return ([x.strip() for x in v if isinstance(x, str) and x.strip()]
+                if isinstance(v, list) else [])
+
+    out["mentioned_events"] = _as_str_list(out.get("mentioned_events"))
+    # Market intelligence from the conversation (competitors + product/PMF signal).
+    out["competitor_signals"] = _as_str_list(out.get("competitor_signals"))
+    out["product_signals"] = _as_str_list(out.get("product_signals"))
     return out
 
 

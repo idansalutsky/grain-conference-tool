@@ -77,7 +77,7 @@ def _ts(date_str: str) -> str:
 def _capture(
     *, name, company, title, vertical, discussed, signals, sentiment,
     meeting, when, conf_like, email=None, linkedin=None, rep_id="rep-na-01",
-    mentioned=None,
+    mentioned=None, competitors=None, product=None,
 ) -> dict:
     structured = {
         "name": name, "company": company, "title": title, "vertical": vertical,
@@ -87,6 +87,8 @@ def _capture(
         # Events the contact said they attend/are going to — feeds the
         # "events your buyers mention" signal + the research-the-loop flow.
         "mentioned_events": mentioned or [],
+        "competitor_signals": competitors or [],
+        "product_signals": product or [],
     }
     enc_id = "enc_demo_" + uuid.uuid4().hex[:12]
     conf_id = _conf_id(conf_like)
@@ -154,7 +156,11 @@ def build() -> None:
                  "curious how embedded hedging would work for their platform.",
                  signals=["explicit_pain", "strong_fit_signal"], sentiment=4,
                  meeting=False, linkedin="linkedin.com/in/sarahcohen",
-                 mentioned=["Sibos", "Fintech Nexus"])
+                 mentioned=["Sibos", "Fintech Nexus"],
+                 competitors=["uses Currencycloud today; spreads on exotic pairs "
+                              "are the pain"],
+                 product=["manual hedging across EUR/GBP/USD doesn't scale with "
+                          "their payout volume"])
     sarah_id = r.get("contact_id")
     _capture(name="Sara Cohen", company="Booking.com", title="VP Treasury",
              vertical="travel", when="2025-10-26", conf_like=M2020_USA,
@@ -177,7 +183,11 @@ def build() -> None:
                  "interested in risk-adjusted pricing.",
                  signals=["strong_fit_signal"], sentiment=4, meeting=False,
                  email="m.schmidt@adyen.com",
-                 mentioned=["Sibos", "Token2049 Singapore"])
+                 mentioned=["Sibos", "Token2049 Singapore"],
+                 competitors=["currently evaluating Convera, frustrated with the "
+                              "FX spreads"],
+                 product=["wants a real-time hedging API he can embed in "
+                          "settlement, not a manual portal"])
     mike_id = r.get("contact_id")
     _capture(name="Mike Schmidt", company="Adyen", title="Head of Payments",
              vertical="payments", when="2025-10-26", conf_like=M2020_USA,
@@ -215,7 +225,10 @@ def build() -> None:
                  vertical="payments", when="2025-06-03", conf_like=M2020_EU,
                  discussed="Early-stage interest; FX handled manually today.",
                  signals=["strong_fit_signal"], sentiment=4, meeting=False,
-                 email="lena.novak@acmepay.com", linkedin="linkedin.com/in/lenanovak")
+                 email="lena.novak@acmepay.com", linkedin="linkedin.com/in/lenanovak",
+                 competitors=["looked at Convera but found it too rigid for a "
+                              "platform"],
+                 product=["needs multi-entity treasury support as they expand"])
     lena_id = r.get("contact_id")
     _capture(name="Lena Novak", company="Acme Pay", title="Finance Manager",
              vertical="payments", when="2025-10-01", conf_like=EURO,

@@ -957,6 +957,64 @@ function ActivityGroupRow({ group }: { group: ActivityGroup }) {
   );
 }
 
+function MarketSection() {
+  const { data } = useQuery({
+    queryKey: ["brain-market"],
+    queryFn: () =>
+      api.get<{ competitors: any[]; product: any[] }>("/api/brain/market"),
+  });
+  const competitors = data?.competitors || [];
+  const product = data?.product || [];
+  if (!competitors.length && !product.length) return null;
+  return (
+    <section className="border-t border-ink-200 pt-6">
+      <h2 className="text-lg mb-1">What the market's telling us</h2>
+      <p className="text-sm text-ink-500 max-w-[68ch] mb-4">
+        Pulled from real conversations — the competitors your buyers raise and the
+        product signals worth routing to GTM and product. Not every word; just the
+        signal.
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {!!competitors.length && (
+          <div className="card p-4">
+            <div className="rule-label mb-3">Competitors buyers raise</div>
+            <ul className="space-y-3">
+              {competitors.map((c: any) => (
+                <li key={c.name}>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-semibold text-ink-900">{c.name}</span>
+                    <span className="text-xs text-ink-500">
+                      {c.count} {c.count === 1 ? "mention" : "mentions"}
+                    </span>
+                  </div>
+                  {!!c.samples?.length && (
+                    <p className="text-sm text-ink-600 italic mt-0.5">
+                      “{c.samples[0]}”
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!!product.length && (
+          <div className="card p-4">
+            <div className="rule-label mb-3">Product &amp; market signals</div>
+            <ul className="space-y-3">
+              {product.map((p: any, i: number) => (
+                <li key={i}>
+                  <p className="text-sm text-ink-800">{p.note}</p>
+                  <p className="text-xs text-ink-400 mt-0.5">{p.who}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ActivitySection() {
   const { data, isLoading } = useQuery({
     queryKey: ["brain-activity"],
@@ -1650,6 +1708,8 @@ export function BrainPage() {
       <RunSection lastTrace={lastTrace} onTrace={setLastTrace} />
 
       {/* The agents' work, made visible — humanised from the audit log. */}
+      <MarketSection />
+
       <ActivitySection />
 
       {/* Under-the-hood — the memory tiers, rollups, and graph. Collapsed by

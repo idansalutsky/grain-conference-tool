@@ -139,6 +139,37 @@ def test_research_mentioned_events_confirms_and_reports_not_found(monkeypatch):
     assert "Defunct Ghost Expo" in res["not_found"]
 
 
+def test_market_signals_aggregates_competitors_and_product(monkeypatch):
+    """Voice-of-the-market: competitor mentions rank by frequency (matched to the
+    ICP competitor list) and product/PMF notes carry contact context."""
+    import json as _json
+    from grain import market
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts (id, primary_name, primary_company, "
+            "created_at, updated_at) VALUES ('c-mk','Mk Person','AcmeCo',?,?)",
+            (db.now_iso(), db.now_iso()),
+        )
+        for eid, comp, prod in [
+            ("e-mk1", ["uses Convera, unhappy with spreads"],
+             ["wants a real-time hedging API"]),
+            ("e-mk2", ["evaluating Convera vs us"], []),
+        ]:
+            conn.execute(
+                "INSERT OR REPLACE INTO encounters (id, contact_id, captured_at, "
+                "capture_mode, structured_json) VALUES (?,?,?,?,?)",
+                (eid, "c-mk", db.now_iso(), "telegram",
+                 _json.dumps({"competitor_signals": comp, "product_signals": prod})),
+            )
+    finally:
+        conn.close()
+    m = market.market_signals()
+    convera = next((c for c in m["competitors"] if c["name"] == "Convera"), None)
+    assert convera is not None and convera["count"] >= 2, m["competitors"]
+    assert any("hedging API" in p["note"] for p in m["product"]), m["product"]
+
+
 def test_creation_is_idempotent_on_name():
     payload = {
         "name": "Test Dedup Summit 2026", "region": "EU", "vertical": "payments",

@@ -71,6 +71,14 @@ def _activity_detail(kind: str, after: dict, reason: str | None) -> str:
     return name or (reason or "")
 
 
+@router.get("/market")
+def market() -> dict:
+    """Voice-of-the-market: competitors buyers raise + product/PMF signals,
+    aggregated from real conversations."""
+    from ... import market as _market
+    return _market.market_signals()
+
+
 @router.get("/activity")
 def activity(limit: int = 30) -> dict:
     """Recent agent activity, humanised from the audit log (most recent first)."""

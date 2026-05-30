@@ -143,6 +143,16 @@ EXTRACT_SYSTEM = (
     "  mentioned_events — array of conference/event NAMES the person says they "
     "attend, attended, or are going to (e.g. 'we were at Sibos', 'see you at "
     "Money20/20'), else []. Only real named events, not generic phrases.\n"
+    "  competitor_signals — array of SHORT notes (else []) when they mention a "
+    "competitor or current FX/payments provider: who they use/evaluate/are "
+    "leaving and why (e.g. 'uses Convera, unhappy with the spreads', 'comparing "
+    "us to Wise'). One concise note per mention.\n"
+    "  product_signals — array of SHORT notes (else []) capturing market/product "
+    "intelligence worth routing to GTM/product: a pain with their current "
+    "approach, a feature/capability they wish existed, an objection, or a "
+    "buying-process/budget/timing signal (e.g. 'wants a real-time hedging API', "
+    "'manual multi-entity hedging is painful', 'budget approved for Q3'). Only "
+    "genuinely useful signal — omit small talk.\n"
     "  transcript     — verbatim transcript in original language\n"
     "Extract the email whenever it appears in the note (e.g. 'her email is "
     "michael@wise.com' → \"michael@wise.com\"). Email is a strong identity key "
@@ -267,7 +277,8 @@ def _fallback_text_to_lead(text: str) -> dict:
         "sentiment": sentiment, "meeting_requested": meeting,
         "phone": phone.group(1).strip() if phone else None,
         "linkedin": linkedin.group(0) if linkedin else None,
-        "email": email, "mentioned_events": [], "transcript": t,
+        "email": email, "mentioned_events": [],
+        "competitor_signals": [], "product_signals": [], "transcript": t,
         "_extraction": "deterministic-fallback (no LLM key)",
     }
 
