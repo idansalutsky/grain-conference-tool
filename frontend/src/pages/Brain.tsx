@@ -162,8 +162,17 @@ const KIND_META: Record<string, { label: string; line: string; hue: string }> = 
 
 const EXAMPLE_CAPTURE =
   "Met the CFO of Klook at Money20/20 — warm, asked for a follow-up";
-const EXAMPLE_DISCOVERY =
-  "Find treasury events in LATAM we don't already have";
+const EXAMPLE_DISCOVERY = "find new events we don't already track";
+// The money moment: an off-target lead the gate should refuse outright.
+const EXAMPLE_REFUSE =
+  "Met the Head of FX at Convera at Money20/20";
+
+// Suggested questions — asking an intelligence, not a debug box.
+const SUGGESTED: { label: string; prompt: string }[] = [
+  { label: "Where are we under-invested?", prompt: "Where are we under-invested?" },
+  { label: "Who's warming?", prompt: "Which accounts are warming right now?" },
+  { label: "Which events are worth returning to?", prompt: "Which events are worth returning to next year?" },
+];
 
 function relTime(iso?: string): string {
   if (!iso) return "—";
@@ -755,19 +764,127 @@ function RollupsSection() {
 // SECTION 2 — Run the brain
 // ===========================================================================
 
+// A run of one-or-more consecutive activity items that share a label.
+interface ActivityGroup {
+  key: string;
+  icon: string;
+  label: string;
+  items: any[]; // newest-first within the group
+}
+
+/** Pluralise a humanised activity label for the collapsed summary row.
+ *  Handles the common cases ("match" → "matches", "...ed" stays put). */
+function pluralizeLabel(label: string, n: number): string {
+  const lower = label.toLowerCase();
+  if (n === 1) return lower;
+  if (/(ch|sh|s|x|z)$/.test(lower)) return `${lower}es`;
+  if (/[^aeiou]y$/.test(lower)) return `${lower.slice(0, -1)}ies`;
+  // Labels ending in a past-tense verb ("...adjusted") don't pluralise well —
+  // fall back to a count-prefixed phrasing instead.
+  if (/ed$/.test(lower) || / /.test(lower) === false) return lower;
+  return `${lower}s`;
+}
+
+/** Collapse CONSECUTIVE same-label items into one group; distinct events stay
+ *  on their own. Order is preserved, so the feed reads as a tidy stream. */
+function groupActivity(items: any[]): ActivityGroup[] {
+  const groups: ActivityGroup[] = [];
+  for (const it of items) {
+    const last = groups[groups.length - 1];
+    if (last && last.label === it.label) {
+      last.items.push(it);
+    } else {
+      groups.push({
+        key: `${it.label}-${groups.length}`,
+        icon: it.icon,
+        label: it.label,
+        items: [it],
+      });
+    }
+  }
+  return groups;
+}
+
+function ActivityRow({ it }: { it: any }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="text-sm">
+        <span className="font-medium">{it.label}</span>
+        {it.detail && <span className="text-ink-600"> — {it.detail}</span>}
+      </div>
+      <div className="text-xs text-ink-400">
+        {relTime(it.at)}
+        {it.by ? ` · ${it.by}` : ""}
+      </div>
+    </div>
+  );
+}
+
+function ActivityGroupRow({ group }: { group: ActivityGroup }) {
+  const [open, setOpen] = useState(false);
+  const n = group.items.length;
+
+  // A single item renders as a plain row — no collapsing theatre.
+  if (n === 1) {
+    return (
+      <li className="flex items-start gap-3 py-2">
+        <span className="text-base leading-6 shrink-0">{group.icon}</span>
+        <ActivityRow it={group.items[0]} />
+      </li>
+    );
+  }
+
+  // A run of repeats collapses into one summary row that expands on click.
+  const newest = group.items[0];
+  return (
+    <li className="py-2">
+      <button
+        className="flex items-start gap-3 w-full text-left group"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className="text-base leading-6 shrink-0">{group.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm">
+            <span className="font-display font-bold tabular-nums">{n}</span>{" "}
+            <span className="font-medium">{pluralizeLabel(group.label, n)}</span>
+            <span className="text-ink-400 text-xs"> · {relTime(newest.at)}</span>
+          </div>
+          <div className="text-xs text-ink-400 group-hover:text-ink-500">
+            {open ? "hide individual items" : "show individual items"}
+          </div>
+        </div>
+        <span className="text-ink-300 text-sm shrink-0 mt-0.5" aria-hidden>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+      {open && (
+        <ul className="mt-2 ml-9 space-y-1.5 border-l border-ink-100 pl-3">
+          {group.items.map((it, i) => (
+            <li key={i}>
+              <ActivityRow it={it} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
 function ActivitySection() {
   const { data, isLoading } = useQuery({
     queryKey: ["brain-activity"],
     queryFn: () => api.get<{ items: any[] }>("/api/brain/activity?limit=25"),
   });
   const items = data?.items || [];
+  const groups = useMemo(() => groupActivity(items), [items]);
   return (
     <section className="border-t border-ink-200 pt-6">
-      <h2 className="text-lg mb-1">What the system's been doing</h2>
+      <h2 className="text-lg mb-1">What the system&apos;s been doing</h2>
       <p className="text-sm text-ink-500 max-w-[68ch] mb-3">
         Every decision the capture, resolver, discovery and scoring agents make is
-        logged — here's the recent stream, in plain language. Your window into the
-        agents at work.
+        logged — here&apos;s the recent stream, in plain language. Repeats are folded
+        up; click to unfold them.
       </p>
       {isLoading && <div className="text-sm text-ink-500">Loading…</div>}
       {!isLoading && items.length === 0 && (
@@ -775,21 +892,10 @@ function ActivitySection() {
           No activity yet — capture a lead or discover an event to see the agents work.
         </div>
       )}
-      {items.length > 0 && (
+      {groups.length > 0 && (
         <ul className="card divide-y divide-ink-100 px-3">
-          {items.map((it: any, i: number) => (
-            <li key={i} className="flex items-start gap-3 py-2">
-              <span className="text-base leading-6 shrink-0">{it.icon}</span>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm">
-                  <span className="font-medium">{it.label}</span>
-                  {it.detail && <span className="text-ink-600"> — {it.detail}</span>}
-                </div>
-                <div className="text-xs text-ink-400">
-                  {relTime(it.at)}{it.by ? ` · ${it.by}` : ""}
-                </div>
-              </div>
-            </li>
+          {groups.map((g) => (
+            <ActivityGroupRow key={g.key} group={g} />
           ))}
         </ul>
       )}
@@ -833,6 +939,8 @@ function RunSection({
   const [resumed, setResumed] = useState<ResumeResponse | null>(null);
   // Per-proposal approve/reject state for the human-in-the-loop gate.
   const [decisions, setDecisions] = useState<Record<string, boolean>>({});
+  // Track which action fired, so only the pressed control shows its busy state.
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const runMut = useMutation({
     mutationFn: (input_text: string) =>
@@ -850,8 +958,12 @@ function RunSection({
       } else {
         qc.invalidateQueries({ queryKey: ["brain-spaces"] });
       }
+      setBusyAction(null);
     },
-    onError: (e) => toast("error", toastErrorMessage(e)),
+    onError: (e) => {
+      setBusyAction(null);
+      toast("error", toastErrorMessage(e));
+    },
   });
 
   const resumeMut = useMutation({
@@ -877,6 +989,11 @@ function RunSection({
 
   const awaiting = run?.status === "awaiting_approval" ? run : null;
   const complete = run?.status === "complete" ? run : null;
+  const pending = runMut.isPending;
+  const fire = (key: string, prompt: string) => {
+    setBusyAction(key);
+    submit(prompt);
+  };
 
   const approvedCount = awaiting
     ? awaiting.proposals.filter((p) => decisions[p.id]).length
@@ -884,45 +1001,83 @@ function RunSection({
 
   return (
     <section>
-      <div className="rule-label mb-2">Try it live — what gets remembered, and what doesn&apos;t</div>
-      <p className="text-sm text-ink-700 mb-4 max-w-[68ch]">
-        Type something a rep might say after a conversation. The tool decides
-        whether it&apos;s worth remembering — a useful fact, a new event to chase,
-        or a question to answer — and it will pause or refuse anything that
-        doesn&apos;t fit who you sell to. Try a real signal, then try a competitor
-        or an off-target lead and watch it hold the line.
-      </p>
+      <div className="rule-label mb-3">Put it to work</div>
 
-      <div className="card p-4 sm:p-5 mb-4">
-        <textarea
-          className="input w-full"
-          rows={3}
-          placeholder="e.g. Met the CFO of Klook at Money20/20 — warm, asked for a follow-up"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <div className="flex flex-wrap items-center gap-2 mt-3">
+      {/* ACTION-LED: two confident, deliberate moves up top. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+        {/* (a) Discovery — the primary action. */}
+        <div className="card p-4 sm:p-5 flex flex-col rise" style={{ animationDelay: "0ms" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg leading-none" aria-hidden>🔎</span>
+            <h3 className="text-base">Scan for new events</h3>
+          </div>
+          <p className="text-sm text-ink-500 flex-1 mb-3">
+            Sweep the web for conferences worth attending that you don&apos;t
+            already track — it surfaces candidates and waits for your call before
+            anything enters the plan.
+          </p>
           <button
-            className="btn-primary"
-            disabled={!text.trim() || runMut.isPending}
-            onClick={() => submit(text)}
+            className="btn-primary self-start"
+            disabled={pending}
+            onClick={() => fire("scan", EXAMPLE_DISCOVERY)}
           >
-            {runMut.isPending ? "Thinking…" : "Run the brain"}
+            {pending && busyAction === "scan" ? "Scanning…" : "Scan for new events"}
           </button>
-          <span className="text-xs text-ink-500 mr-1">or try:</span>
+        </div>
+
+        {/* (b) The refusal demo — the money moment. */}
+        <div className="card p-4 sm:p-5 flex flex-col rise" style={{ animationDelay: "60ms" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg leading-none" aria-hidden>⛔</span>
+            <h3 className="text-base">Watch it refuse the wrong lead</h3>
+          </div>
+          <p className="text-sm text-ink-500 flex-1 mb-3">
+            Feed it a competitor contact and watch the gate reject it — the trace
+            and the reason, in the open. Noise control as a feature, not an
+            afterthought.
+          </p>
           <button
-            className="btn-secondary text-xs"
-            disabled={runMut.isPending}
-            onClick={() => submit(EXAMPLE_CAPTURE)}
+            className="btn-secondary self-start"
+            disabled={pending}
+            onClick={() => fire("refuse", EXAMPLE_REFUSE)}
           >
-            ✎ a capture
+            {pending && busyAction === "refuse" ? "Running…" : "Run the refusal"}
           </button>
+        </div>
+      </div>
+
+      {/* Secondary, de-emphasised: ask the intelligence a question. */}
+      <div className="card p-4 mb-4 rise" style={{ animationDelay: "120ms" }}>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 mb-2">
+          <span className="label">Ask the intelligence</span>
+          {SUGGESTED.map((q) => (
+            <button
+              key={q.label}
+              className="stamp transition-colors hover:bg-ink-100 disabled:opacity-50"
+              style={stampStyle("245", true)}
+              disabled={pending}
+              onClick={() => fire("ask:" + q.label, q.prompt)}
+            >
+              {q.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            className="input flex-1"
+            placeholder="…or capture a signal: Met the CFO of Klook at Money20/20 — warm"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") fire("free", text);
+            }}
+          />
           <button
-            className="btn-secondary text-xs"
-            disabled={runMut.isPending}
-            onClick={() => submit(EXAMPLE_DISCOVERY)}
+            className="btn-ghost text-xs shrink-0"
+            disabled={!text.trim() || pending}
+            onClick={() => fire("free", text)}
           >
-            ◌ a discovery
+            {pending && busyAction === "free" ? "…" : "Send"}
           </button>
         </div>
       </div>
@@ -1129,7 +1284,7 @@ function RunSection({
       {/* keep lastTrace referenced so highlighting stays in sync if reset */}
       {lastTrace.length === 0 && run == null && (
         <p className="text-xs text-ink-500">
-          Nothing run yet — try one of the examples above to see it decide.
+          Nothing run yet — pick an action above to see it decide.
         </p>
       )}
     </section>
@@ -1355,14 +1510,10 @@ export function BrainPage() {
     <div className="space-y-10">
       <div>
         <h1 className="text-2xl mb-1">Team Intelligence</h1>
-        <p className="text-sm text-ink-700 max-w-[72ch]">
-          The team's event &amp; relationship brain. It <strong>surfaces new
-          events</strong> worth attending — from the web and from what your own
-          buyers mention — and an approved one drops straight into your plan,
-          scored. It <strong>remembers</strong> the people you meet across
-          events, and it <strong>filters out the noise</strong>: it only keeps
-          signal that fits who you sell to, and gets sharper every time a rep
-          corrects it.
+        <p className="text-base text-ink-700 max-w-[64ch] leading-relaxed">
+          Your team&apos;s event and relationship intelligence — it finds new
+          events worth attending, remembers the people you meet across them, and
+          filters out everything that doesn&apos;t fit who you sell to.
         </p>
       </div>
 

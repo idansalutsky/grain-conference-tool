@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { AudioRecorder } from "@/components/AudioRecorder";
@@ -70,6 +71,22 @@ export function CapturePage() {
 
   const busy = voice_mut.isPending || text_mut.isPending || badge_mut.isPending;
 
+  // Telegram connect — mirrors Settings.tsx: POST /api/telegram/issue-token
+  // returns a one-time deep_link the rep opens on their phone to bind the bot.
+  const [tgToken, setTgToken] = useState<any | null>(null);
+  const [copied, setCopied] = useState(false);
+  const issueTgToken = useMutation({
+    mutationFn: () =>
+      api.post<any>("/api/telegram/issue-token", { rep_id: DEFAULT_REP_ID }),
+    onSuccess: (d) => {
+      setTgToken(d);
+      setCopied(false);
+    },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
+
+  const selectedConf = confs.data?.items.find((c) => c.id === confId);
+
   return (
     <div>
       <h1 className="text-2xl mb-1">Field Capture</h1>
@@ -95,6 +112,8 @@ export function CapturePage() {
           ))}
         </select>
       </div>
+
+      <div className="rule-label mb-3">Capture a lead</div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card p-5">
@@ -170,6 +189,83 @@ export function CapturePage() {
           onDeleted={() => setResult(null)}
         />
       )}
+
+      {/* ---- Supporting: capture from your phone via Telegram ---------- */}
+      <div className="rule-label mt-10 mb-3">Capture on your phone</div>
+
+      <section className="card p-5 mb-4">
+        <div className="label mb-2">📱 Telegram — voice, photo &amp; text from the floor</div>
+        <p className="text-sm text-ink-700 max-w-[60ch]">
+          Reps capture hands-free in Telegram — fire off a voice memo, snap a
+          badge, or type a line, and it lands here as a structured lead. Best for
+          when you're walking the floor and don't want to open the app.
+        </p>
+        <button
+          onClick={() => issueTgToken.mutate()}
+          disabled={issueTgToken.isPending}
+          className="btn-primary mt-4"
+        >
+          {issueTgToken.isPending ? "Generating…" : "Connect Telegram"}
+        </button>
+
+        {tgToken && (
+          <div className="mt-4 border-t border-ink-100 pt-4">
+            <div className="label mb-1">Open this on your phone</div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <a
+                href={tgToken.deep_link}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand font-mono text-xs break-all hover:underline flex-1"
+              >
+                {tgToken.deep_link}
+              </a>
+              <button
+                onClick={() => {
+                  navigator.clipboard
+                    ?.writeText(tgToken.deep_link)
+                    .then(() => {
+                      setCopied(true);
+                      toast("success", "Link copied");
+                    })
+                    .catch(() => toast("error", "Couldn't copy — long-press to copy"));
+                }}
+                className="btn-secondary text-sm shrink-0"
+              >
+                {copied ? "Copied ✓" : "Copy link"}
+              </button>
+            </div>
+            <p className="text-xs text-ink-500 mt-2">
+              One-time link. Opening it binds the bot{" "}
+              <span className="font-mono">@{tgToken.bot_username || "GrainSales_bot"}</span>{" "}
+              to your rep profile. You can also bind per-event from any event's page.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {/* ---- Supporting: end of event → follow-ups -------------------- */}
+      <div className="rule-label mt-10 mb-3">End of event</div>
+
+      <section className="card p-5">
+        <div className="label mb-2">🏁 Wrap up &amp; turn captures into follow-ups</div>
+        <p className="text-sm text-ink-700 max-w-[60ch]">
+          When the event's done, turn your captures into ready-to-send
+          follow-ups — drafted per lead and waiting for your review.
+        </p>
+        {selectedConf ? (
+          <Link
+            to={`/conferences/${selectedConf.id}`}
+            className="btn-primary mt-4 inline-flex"
+          >
+            Wrap up {selectedConf.name} → draft follow-ups
+          </Link>
+        ) : (
+          <p className="text-xs text-ink-500 mt-3">
+            Pick an event above, then come back here to wrap it up.
+          </p>
+        )}
+      </section>
     </div>
   );
 }
