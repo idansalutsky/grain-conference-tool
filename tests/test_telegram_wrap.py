@@ -134,6 +134,47 @@ def test_wrap_with_no_active_event_is_friendly():
     assert "No active event set" in "\n".join(sent)
 
 
+def test_wrap_surfaces_leads_missing_contact_info():
+    """A contact captured at the event with no email/phone/LinkedIn is surfaced
+    so the rep grabs details before leaving; a reachable one is not."""
+    _seed_conf()
+    conn = db.get_conn()
+    try:
+        # unreachable — no email, phone, or linkedin
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts (id, primary_name, primary_company, "
+            "created_at, updated_at) VALUES (?,?,?,?,?)",
+            ("c-noinfo", "Noinfo Person", "AcmeCo", db.now_iso(), db.now_iso()),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO encounters (id, contact_id, conference_id, "
+            "rep_id, captured_at, capture_mode) VALUES (?,?,?,?,?,?)",
+            ("e-noinfo", "c-noinfo", CONF_ID, REP_ID, db.now_iso(), "telegram"),
+        )
+        # reachable — has an email
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts (id, primary_name, primary_company, "
+            "primary_email, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+            ("c-hasinfo", "Hasinfo Person", "AcmeCo", "h@acme.com",
+             db.now_iso(), db.now_iso()),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO encounters (id, contact_id, conference_id, "
+            "rep_id, captured_at, capture_mode) VALUES (?,?,?,?,?,?)",
+            ("e-hasinfo", "c-hasinfo", CONF_ID, REP_ID, db.now_iso(), "telegram"),
+        )
+    finally:
+        conn.close()
+    missing = tg._event_missing_contact_info(CONF_ID)
+    names = {m["primary_name"] for m in missing}
+    assert "Noinfo Person" in names
+    assert "Hasinfo Person" not in names
+    body = tg._format_wrap({"event_name": "X", "count": 1, "recommended_count": 0,
+                            "drafts": []}, [], missing)
+    assert "Grab contact details" in body
+    assert "Noinfo Person" in body
+
+
 def test_event_scoped_nudges_only_include_this_events_contacts():
     """The nudge query intersects nudge_active contacts with encounters at the
     active event — a nudge-active contact met at a DIFFERENT event is excluded."""

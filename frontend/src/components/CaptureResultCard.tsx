@@ -120,7 +120,7 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
 
       {editing ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
-          {(["name", "company", "title", "phone"] as const).map((f) => (
+          {(["name", "company", "title", "email", "phone"] as const).map((f) => (
             <label key={f} className="text-xs">
               <span className="text-ink-500 capitalize">{f}</span>
               <input
@@ -150,6 +150,12 @@ export function CaptureResultCard({ result, onDeleted }: Props) {
           </div>
           {s.what_discussed && (
             <p className="text-sm mt-2 text-ink-700 italic">"{s.what_discussed}"</p>
+          )}
+          {!(s.email || (s as any).phone || (s as any).linkedin) && (
+            <div className="mt-2 text-xs rounded-md px-2 py-1.5 bg-amber-50 text-amber-800 border border-amber-200">
+              📇 No email, phone, or LinkedIn yet — grab one before they move on.
+              Tap “Fix details” to add it.
+            </div>
           )}
         </>
       )}

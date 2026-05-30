@@ -341,7 +341,29 @@ def _event_active_nudges(conference_id: str, limit: int = 6) -> list[dict]:
         conn.close()
 
 
-def _format_wrap(digest: dict, nudges: list[dict]) -> str:
+def _event_missing_contact_info(conference_id: str, limit: int = 8) -> list[dict]:
+    """Contacts captured at this event with NO way to reach them — no email, no
+    phone, no LinkedIn. These are leads the rep should chase for details before
+    leaving the floor, or they're effectively lost. Read-only."""
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT c.id, c.primary_name, c.primary_company "
+            "FROM contacts c JOIN encounters e ON e.contact_id = c.id "
+            "WHERE e.conference_id = ? "
+            "AND COALESCE(c.primary_email,'') = '' "
+            "AND COALESCE(c.phone,'') = '' "
+            "AND COALESCE(c.linkedin_handle,'') = '' "
+            "ORDER BY c.updated_at DESC LIMIT ?",
+            (conference_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _format_wrap(digest: dict, nudges: list[dict],
+                 missing: list[dict] | None = None) -> str:
     """Build the Telegram wrap message: header + recommended follow-up drafts
     + active nudges. Caps to the top drafts to stay under Telegram's limit."""
     event_name = digest.get("event_name") or "this event"
@@ -386,6 +408,15 @@ def _format_wrap(digest: dict, nudges: list[dict]) -> str:
             nudge_lines.append(f"💡 *{nm}* — {nt}" if nt else f"💡 *{nm}*")
         text += "\n" + "\n".join(nudge_lines)
 
+    if missing:
+        miss_lines = ["\n📇 *Grab contact details before you leave* "
+                      "(no email / phone / LinkedIn yet):"]
+        for m in missing:
+            nm = m.get("primary_name") or "?"
+            co = m.get("primary_company") or "?"
+            miss_lines.append(f"• {nm} @ {co}")
+        text += "\n" + "\n".join(miss_lines)
+
     return text
 
 
@@ -411,13 +442,15 @@ def _wrap_event(rep: dict, chat_id: int) -> dict:
         return {"action": "wrap_failed", "error": digest.get("error")}
 
     nudges = _event_active_nudges(active_conf)
-    send_message(chat_id, _format_wrap(digest, nudges))
+    missing = _event_missing_contact_info(active_conf)
+    send_message(chat_id, _format_wrap(digest, nudges, missing))
     return {
         "action": "wrap",
         "conference_id": active_conf,
         "count": digest.get("count", 0),
         "recommended_count": digest.get("recommended_count", 0),
         "nudge_count": len(nudges),
+        "missing_contact_info": len(missing),
     }
 
 
@@ -678,4 +711,9 @@ def _intel_reply(result: dict) -> str:
         # Don't spam the rep with suppression reasons — only show if this is
         # a long-running silent contact.
         pass
+    # Must-have nudge: if we have no way to reach this person, say so NOW while
+    # they're still in front of the rep — an unreachable lead is a lost lead.
+    if not (struct.get("email") or struct.get("phone") or struct.get("linkedin")):
+        lines.append("\n📇 No email / phone / LinkedIn yet — grab one before "
+                     "they move on.")
     return "\n".join(lines)
