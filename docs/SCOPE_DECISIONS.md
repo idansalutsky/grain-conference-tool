@@ -64,6 +64,29 @@ deterministic and run from seeded data with **zero live LLM calls**. Only *new*
 capture / discovery / brief generation hits the model. A flaky network can't
 break the walkthrough.
 
+## The Events Brain — scope (why it's one capability, not a pile of toys)
+
+The agent/memory layer is framed as **the team's event & relationship brain**,
+deliberately scoped to three legible jobs so it reads as value, not a tech demo:
+
+1. **Surface** — find new ICP-fit events worth attending, from two sources: a
+   grounded web search **and** the events your own buyers mention in
+   conversation. An approved event becomes a **real, scored conference** in the
+   plan (not a dead-end memory entry).
+2. **Remember & answer** — a knowledge base over real encounters; the query node
+   answers "where are we under-invested / who's warming" over compressed memory.
+3. **Keep clean & complete** — an ICP gate rejects competitors/off-ICP before
+   they enter memory, and it flags **missing must-have contact fields** so a rep
+   never loses a lead to a half-captured card.
+
+Plus a **read-only Activity feed** over the audit log, so the agents' work is
+visible and reviewable in the UI (not just stored).
+
+**Deliberately deferred (named, not half-built):** open-ended transcript Q&A
+("what exactly did we say to Adyen in March"), auto-generated next-action tasks,
+and free-text per-conversation notes beyond the captured `what_discussed`. Each
+is a real feature; none is started, so nothing reads as half-done.
+
 ## What we'd build next (named, not half-built)
 
 - Historical-yield feedback loop fully wired (the scoring factor exists at weight

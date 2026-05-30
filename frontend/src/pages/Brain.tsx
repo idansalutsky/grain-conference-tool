@@ -1313,9 +1313,13 @@ export function BrainPage() {
       <div>
         <h1 className="text-2xl mb-1">Team Intelligence</h1>
         <p className="text-sm text-ink-700 max-w-[72ch]">
-          Shared team memory that filters out the noise. It only remembers
-          signal that fits who you sell to, connects the same person across
-          different events, and gets sharper every time a rep corrects it.
+          The team's event &amp; relationship brain. It <strong>surfaces new
+          events</strong> worth attending — from the web and from what your own
+          buyers mention — and an approved one drops straight into your plan,
+          scored. It <strong>remembers</strong> the people you meet across
+          events, and it <strong>filters out the noise</strong>: it only keeps
+          signal that fits who you sell to, and gets sharper every time a rep
+          corrects it.
         </p>
       </div>
 
