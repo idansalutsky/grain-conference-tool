@@ -26,16 +26,10 @@ export function ConferenceDetailPage() {
       api.get<{ items: any[] }>(`/api/people`, { query: { conference_id: id, limit: 50 } }),
     enabled: !!id,
   });
-  const prep = useMutation({
-    mutationFn: () =>
-      api.post<any>("/api/briefs/prep", { conference_id: id, top_n: 5 }),
-    onSuccess: (d) =>
-      toast("success", `Generated ${d?.prepared ?? 0} brief${d?.prepared === 1 ? "" : "s"}`),
-    onError: (e) => toast("error", toastErrorMessage(e)),
-  });
-
-  // Agent runner is now a self-contained streaming component (see <AgentRunner />)
-  // — removed the old useMutation since we stream via EventSource instead.
+  // Prep is handled entirely by the streaming agent (see <AgentRunner />) — a
+  // single mechanism, not an agent + a deterministic duplicate. The deterministic
+  // /api/briefs/prep endpoint still exists server-side; we just don't surface a
+  // competing card for it.
 
   // HIL: human can argue with the 7-factor score (e.g. "this event matters
   // more than the model thinks because we landed 2 deals here in 2024").
@@ -171,54 +165,6 @@ export function ConferenceDetailPage() {
 
         <div className="lg:col-span-2 space-y-4">
           {id && <AgentRunner conferenceId={id} />}
-
-          {/* === Deterministic fallback (kept for cheap fixed-order prep) === */}
-          <section className="card p-4 bg-emerald-50 border-emerald-200">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-sm font-semibold text-emerald-900">
-                  Deterministic prep — top 5 by persona weight
-                </h2>
-                <p className="text-xs text-emerald-800 mt-0.5">
-                  Fixed-order alternative if you don't need the agent's judgment.
-                </p>
-              </div>
-              <button
-                onClick={() => prep.mutate()}
-                disabled={prep.isPending}
-                className="btn-primary text-sm"
-              >
-                {prep.isPending ? "Generating…" : "📄 Quick prep"}
-              </button>
-            </div>
-            {prep.data && (
-              <div className="mt-3 space-y-2 border-t border-emerald-200 pt-3">
-                <div className="text-xs text-emerald-900 font-semibold">
-                  {prep.data.prepared} brief{prep.data.prepared === 1 ? "" : "s"} generated
-                </div>
-                {prep.data.briefs?.map((b: any) => (
-                  <div key={b.person_id} className="bg-white rounded p-2 text-xs">
-                    <div className="font-semibold">
-                      {b.full_name} — {b.title || "?"} @ {b.company}
-                    </div>
-                    {b.error ? (
-                      <div className="text-red-700 mt-1">Error: {b.error}</div>
-                    ) : (
-                      <>
-                        <div className="text-ink-700 mt-1 italic">"{(b.fx_angle || "").slice(0, 200)}"</div>
-                        <div className="text-ink-500 mt-1">
-                          📰 {b.trigger_news_count} trigger news item(s)
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {prep.error && (
-              <div className="text-xs text-red-700 mt-2">{toastErrorMessage(prep.error)}</div>
-            )}
-          </section>
 
           <section className="card p-4">
             <div className="flex justify-between items-baseline mb-1">

@@ -18,6 +18,12 @@ interface RunState {
   elapsedMs: number;
 }
 
+// Grain green — the one accent. Matches --btn-primary / brand in index.css.
+const GREEN = "oklch(0.605 0.122 164)";
+const GREEN_INK = "oklch(0.45 0.11 164)";
+const GREEN_TINT_BG = "oklch(0.97 0.03 164)";
+const GREEN_TINT_BORDER = "oklch(0.86 0.05 164)";
+
 /**
  * Runs the "plan my prep" agent over SSE so the rep sees each tool call as
  * it lands. The agent typically takes 30-60s; without streaming UI the
@@ -157,58 +163,82 @@ export function AgentRunner({ conferenceId, apiBase }: Props) {
   const elapsedS = Math.floor(state.elapsedMs / 1000);
 
   return (
-    <section className="card p-4 border-2 border-purple-300 bg-gradient-to-br from-purple-50 to-indigo-50">
+    <section className="card p-4">
       <div className="flex justify-between items-start gap-3 flex-wrap">
         <div>
-          <h2 className="text-sm font-semibold text-purple-900">
-            🤖 AI agent — plan my prep
-          </h2>
-          <p className="text-xs text-purple-800 mt-0.5">
-            An LLM with 5 tools (target list, contact history, news, competitors,
-            brief gen) decides the priority order and reasoning. Watch it
-            think — each tool call streams live.
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold">Plan my prep</h2>
+            {isRunning && (
+              <span
+                className="stamp"
+                style={{
+                  color: GREEN_INK,
+                  backgroundColor: GREEN_TINT_BG,
+                  borderColor: GREEN_TINT_BORDER,
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-1.5 h-1.5 rounded-full motion-safe:animate-pulse"
+                  style={{ backgroundColor: GREEN }}
+                />
+                Thinking
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-ink-500 mt-0.5 max-w-[60ch]">
+            An agent with five tools — target list, contact history, news,
+            competitors, brief generation — decides the priority order and the
+            reasoning behind it. Each tool call streams live below.
           </p>
         </div>
-        <button
-          onClick={run}
-          disabled={isRunning}
-          className="btn-primary text-sm shrink-0 bg-purple-700 hover:bg-purple-800 disabled:bg-purple-400"
-        >
-          {isRunning ? `Thinking… ${elapsedS}s` : isDone || hasError ? "Re-run agent" : "Run agent"}
+        <button onClick={run} disabled={isRunning} className="btn-primary text-sm shrink-0">
+          {isRunning
+            ? `Thinking… ${elapsedS}s`
+            : isDone || hasError
+            ? "Re-run agent"
+            : "Run agent"}
         </button>
       </div>
 
       {(isRunning || state.toolCalls.length > 0) && (
-        <div className="mt-3 border-t border-purple-200 pt-3">
-          <div className="text-[10px] uppercase tracking-wider text-purple-700 mb-1.5">
-            Trace · {state.toolCalls.length} tool call{state.toolCalls.length === 1 ? "" : "s"}
+        <div className="mt-3 pt-3 border-t border-ink-100">
+          <div className="rule-label mb-2">
+            Trace · {state.toolCalls.length} tool call
+            {state.toolCalls.length === 1 ? "" : "s"}
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
             {state.toolCalls.map((tc, i) => (
               <div
                 key={i}
-                className="flex items-start gap-2 text-xs bg-white rounded px-2 py-1.5 border border-purple-100"
+                className="flex items-start gap-2.5 text-xs py-1.5 border-b border-ink-100 last:border-0"
               >
-                <span className="text-purple-700 font-mono text-[10px] shrink-0 mt-0.5">
-                  [{tc.iteration}]
+                <span className="font-mono text-[10px] text-ink-500 shrink-0 mt-0.5 tabular-nums">
+                  {String(tc.iteration).padStart(2, "0")}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-ink-900">{tc.name}</span>
+                    <span className="label !text-ink-900 !tracking-[0.08em] normal-case">
+                      {tc.name}
+                    </span>
                     {tc.in_progress && (
                       <span
                         aria-hidden="true"
-                        className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse"
+                        className="inline-block w-1.5 h-1.5 rounded-full motion-safe:animate-pulse"
+                        style={{ backgroundColor: GREEN }}
                       />
                     )}
                   </div>
-                  <div className="text-ink-600">{tc.result_summary}</div>
+                  <div className="text-ink-600 mt-0.5">{tc.result_summary}</div>
                 </div>
               </div>
             ))}
             {isRunning && state.toolCalls.length === 0 && (
-              <div className="text-xs text-purple-700 italic flex items-center gap-2">
-                <span className="inline-block w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+              <div className="text-xs text-ink-500 flex items-center gap-2">
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full motion-safe:animate-pulse"
+                  style={{ backgroundColor: GREEN }}
+                />
                 Agent starting…
               </div>
             )}
@@ -218,7 +248,7 @@ export function AgentRunner({ conferenceId, apiBase }: Props) {
 
       {hasError && (
         <div className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-          ⚠ {state.errorMessage}
+          {state.errorMessage}
         </div>
       )}
 
@@ -230,43 +260,53 @@ export function AgentRunner({ conferenceId, apiBase }: Props) {
 function PlanView({ plan }: { plan: AgentPlan & { raw_text?: string } }) {
   if (plan.raw_text && !plan.priority_order) {
     return (
-      <div className="mt-3 pt-3 border-t border-purple-200 text-xs">
-        <div className="text-[10px] uppercase tracking-wider text-purple-700 mb-1">
-          Agent output
-        </div>
-        <pre className="whitespace-pre-wrap text-ink-700">{plan.raw_text}</pre>
+      <div className="mt-3 pt-3 border-t border-ink-100 text-xs">
+        <div className="label mb-1">Agent output</div>
+        <pre className="whitespace-pre-wrap text-ink-700 font-sans">{plan.raw_text}</pre>
       </div>
     );
   }
   return (
-    <div className="mt-3 pt-3 border-t border-purple-200 space-y-3">
+    <div className="mt-3 pt-3 border-t border-ink-100 space-y-3">
       {plan.summary && (
-        <div className="text-sm text-purple-900 italic">"{plan.summary}"</div>
+        <div className="text-sm text-ink-700 italic">"{plan.summary}"</div>
       )}
       {plan.priority_order && plan.priority_order.length > 0 && (
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-purple-700 mb-1">
+          <div className="label mb-1.5">
             Priority order ({plan.priority_order.length})
           </div>
           <div className="space-y-1">
             {plan.priority_order.map((p, i) => (
               <div
                 key={i}
-                className="bg-white rounded p-2 text-xs border border-purple-100"
+                className="flex items-start gap-2.5 text-xs py-1.5 border-b border-ink-100 last:border-0"
               >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge bg-purple-600 text-white text-[9px] w-5 justify-center">
-                    {p.priority}
-                  </span>
-                  <span className="font-semibold">{p.person_name}</span>
-                  <span className="text-ink-500">@ {p.company}</span>
-                  {p.has_brief && (
-                    <span className="badge bg-emerald-100 text-emerald-800 text-[9px]">
-                      📄 brief
-                    </span>
-                  )}
+                <span
+                  className="font-mono text-[10px] shrink-0 mt-0.5 tabular-nums font-semibold"
+                  style={{ color: GREEN_INK }}
+                >
+                  {String(p.priority).padStart(2, "0")}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-ink-900">{p.person_name}</span>
+                    <span className="text-ink-500">@ {p.company}</span>
+                    {p.has_brief && (
+                      <span
+                        className="stamp"
+                        style={{
+                          color: GREEN_INK,
+                          backgroundColor: GREEN_TINT_BG,
+                          borderColor: GREEN_TINT_BORDER,
+                        }}
+                      >
+                        brief
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-ink-700 mt-0.5">{p.reason}</div>
                 </div>
-                <div className="text-ink-700 mt-1">{p.reason}</div>
               </div>
             ))}
           </div>
@@ -274,13 +314,13 @@ function PlanView({ plan }: { plan: AgentPlan & { raw_text?: string } }) {
       )}
       {plan.competitor_flags && plan.competitor_flags.length > 0 && (
         <div className="text-xs">
-          <span className="text-purple-700 font-semibold">⚠ Competitors at this event:</span>{" "}
-          {plan.competitor_flags.join(", ")}
+          <span className="label">Competitors at this event</span>
+          <span className="text-ink-700"> — {plan.competitor_flags.join(", ")}</span>
         </div>
       )}
       {plan.positioning_notes && plan.positioning_notes.length > 0 && (
         <div className="text-xs">
-          <span className="text-purple-700 font-semibold">Positioning:</span>
+          <span className="label">Positioning</span>
           <ul className="list-disc list-inside text-ink-700 mt-1">
             {plan.positioning_notes.map((n, i) => (
               <li key={i}>{n}</li>
@@ -290,13 +330,13 @@ function PlanView({ plan }: { plan: AgentPlan & { raw_text?: string } }) {
       )}
       {plan.skipped_with_reason && plan.skipped_with_reason.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-purple-700 font-semibold">
+          <summary className="label cursor-pointer">
             Skipped ({plan.skipped_with_reason.length})
           </summary>
           <div className="mt-1 space-y-0.5 text-ink-600">
             {plan.skipped_with_reason.map((s, i) => (
               <div key={i}>
-                <span className="font-medium">{s.person}</span> — {s.reason}
+                <span className="font-medium text-ink-900">{s.person}</span> — {s.reason}
               </div>
             ))}
           </div>
