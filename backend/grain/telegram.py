@@ -363,9 +363,11 @@ def _event_missing_contact_info(conference_id: str, limit: int = 8) -> list[dict
 
 
 def _format_wrap(digest: dict, nudges: list[dict],
-                 missing: list[dict] | None = None) -> str:
-    """Build the Telegram wrap message: header + recommended follow-up drafts
-    + active nudges. Caps to the top drafts to stay under Telegram's limit."""
+                 missing: list[dict] | None = None,
+                 agent: dict | None = None) -> str:
+    """Build the Telegram wrap message: an (optional) agent-reasoned recap, then
+    recommended follow-up drafts + nudges + missing-info. Caps drafts to stay
+    under Telegram's limit."""
     event_name = digest.get("event_name") or "this event"
     count = digest.get("count", 0)
     rec_count = digest.get("recommended_count", 0)
@@ -373,6 +375,15 @@ def _format_wrap(digest: dict, nudges: list[dict],
         f"📋 *Wrap-up — {event_name}*",
         f"{count} captured · {rec_count} worth a follow-up",
     ]
+
+    # Agent-reasoned recap (the "thinking" layer) when available.
+    if agent:
+        if agent.get("summary"):
+            lines.append(f"\n🧠 {agent['summary'].strip()}")
+        if agent.get("urgent"):
+            lines.append("⚡ *Urgent:* " + ", ".join(agent["urgent"][:6]))
+        if agent.get("account_plays"):
+            lines.append("🏢 *Account plays:* " + ", ".join(agent["account_plays"][:5]))
 
     recommended = [d for d in digest.get("drafts", []) if d.get("recommended")]
     shown = recommended[:_WRAP_MAX_DRAFTS]
@@ -448,7 +459,16 @@ def _wrap_event(rep: dict, chat_id: int) -> dict:
 
     nudges = _event_active_nudges(active_conf)
     missing = _event_missing_contact_info(active_conf)
-    send_message(chat_id, _format_wrap(digest, nudges, missing))
+    # The post-event wrap-up AGENT reasons over the captures (urgent, account
+    # plays, cross-conference repeats). Best-effort: if it's unavailable (no key)
+    # or errors, the deterministic digest below still ships — /wrap never breaks.
+    agent = None
+    try:
+        from . import agent_wrap
+        agent = agent_wrap.run_wrap_agent(active_conf)
+    except Exception as exc:  # noqa: BLE001
+        log.info("wrap agent unavailable, using deterministic digest: %s", exc)
+    send_message(chat_id, _format_wrap(digest, nudges, missing, agent))
     return {
         "action": "wrap",
         "conference_id": active_conf,
@@ -456,6 +476,7 @@ def _wrap_event(rep: dict, chat_id: int) -> dict:
         "recommended_count": digest.get("recommended_count", 0),
         "nudge_count": len(nudges),
         "missing_contact_info": len(missing),
+        "agent_used": bool(agent),
     }
 
 
