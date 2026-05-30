@@ -182,7 +182,11 @@ def evaluate(contact_id: str) -> dict:
     # that still needs action ("lock the time"), not a reason to go silent.
     meeting_to_confirm = ever_meeting and not meeting_locked
     job_changed, old_co, new_co = _detect_job_change(encounters)
-    last_title = encounters[-1]["structured"].get("title") if encounters else None
+    # Title can land under either "title" or "role" depending on the extractor /
+    # capture path; check both or the flagship job-change-to-ICP nudge silently
+    # never fires for leads whose title was stored as "role".
+    _last_struct = encounters[-1]["structured"] if encounters else {}
+    last_title = _last_struct.get("title") or _last_struct.get("role")
     job_change_to_icp = job_changed and _is_icp_title(last_title)
 
     thr_arc = _live_arc_threshold()

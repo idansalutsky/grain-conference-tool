@@ -19,6 +19,13 @@ interface CoverageItem {
   conference_id: string; conference_name: string; start_date: string | null;
   city: string | null; country: string | null; tier: string | null; rep_id: string;
 }
+interface EventLink {
+  id: string; name: string; start_date: string | null; city: string | null; tier: string | null;
+}
+interface EventLinksResponse {
+  rep_id: string; rep_name: string; deep_link: string;
+  events: EventLink[]; message_text: string;
+}
 
 const REGIONS = ["NA", "EU", "APAC", "MEA", "LATAM"];
 
@@ -30,6 +37,36 @@ export function TeamPage() {
   const [email, setEmail] = useState("");
   const [region, setRegion] = useState("EU");
   const [openRep, setOpenRep] = useState<string | null>(null);
+  const [tripRep, setTripRep] = useState<string | null>(null);
+  const [trip, setTrip] = useState<EventLinksResponse | null>(null);
+  const [tripLoading, setTripLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function sendTrip(id: string) {
+    if (tripRep === id) { setTripRep(null); setTrip(null); return; }
+    setTripRep(id); setTrip(null); setCopied(false); setTripLoading(true);
+    try {
+      const data = await api.get<EventLinksResponse>(`/api/reps/${id}/event-links`);
+      setTrip(data);
+    } catch (e) {
+      toast("error", toastErrorMessage(e));
+      setTripRep(null);
+    } finally {
+      setTripLoading(false);
+    }
+  }
+
+  async function copyTrip() {
+    if (!trip) return;
+    try {
+      await navigator.clipboard.writeText(trip.message_text);
+      setCopied(true);
+      toast("success", "Message copied — paste it to your rep");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast("error", "Couldn't copy — select the text and copy manually");
+    }
+  }
 
   const reps = useQuery({ queryKey: ["reps"], queryFn: () => api.get<{ items: Rep[] }>("/api/reps") });
   const coverage = useQuery({
@@ -110,9 +147,34 @@ export function TeamPage() {
                   <button className="btn-ghost h-8 !px-2 text-xs" onClick={() => setOpenRep(isOpen ? null : r.id)}>
                     {cov.length} {cov.length === 1 ? "event" : "events"} {isOpen ? "▲" : "▼"}
                   </button>
+                  <button className="btn-ghost h-8 !px-2 text-xs" title="Get a paste-ready trip message + bind link to send this rep"
+                          disabled={tripRep === r.id && tripLoading}
+                          onClick={() => sendTrip(r.id)}>
+                    {tripRep === r.id && tripLoading ? "…" : "📤 Send links"}
+                  </button>
                   <button className="btn-ghost h-8 !px-2 text-ink-500 hover:text-tire" title="Remove rep"
                           onClick={() => remove.mutate(r.id)}>✕</button>
                 </div>
+                {tripRep === r.id && trip && (
+                  <div className="mt-3 pl-12 space-y-2">
+                    <div className="rule-label">Trip handoff for {trip.rep_name}</div>
+                    <pre className="card p-3 text-sm text-ink-800 whitespace-pre-wrap font-sans bg-ink-50">{trip.message_text}</pre>
+                    {trip.events.length > 0 && (
+                      <div className="text-xs text-ink-500">
+                        {trip.events.length} {trip.events.length === 1 ? "event" : "events"}:{" "}
+                        {trip.events.map((e) => e.name).join(" · ")}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button className="btn-primary h-8 !px-3 text-xs" onClick={copyTrip}>
+                        {copied ? "✓ Copied" : "Copy message"}
+                      </button>
+                      <button className="btn-ghost h-8 !px-3 text-xs" onClick={() => { setTripRep(null); setTrip(null); }}>
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {isOpen && (
                   <div className="mt-3 pl-12 space-y-1.5">
                     {cov.length === 0 && <div className="text-sm text-ink-500">Not assigned to any event yet.</div>}

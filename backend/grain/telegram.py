@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 import httpx
 
-from . import config, db, voice
+from . import config, db, followup, voice
 
 log = logging.getLogger("grain.telegram")
 
@@ -35,6 +35,24 @@ _LINKEDIN_ONLY_RE = re.compile(
 # The path the FastAPI webhook route is mounted at. Telegram POSTs updates here.
 WEBHOOK_PATH = "/api/telegram/webhook"
 _WEBHOOK_SECRET_KEY = "telegram.webhook_secret"
+
+# Slash commands that trigger the end-of-event wrap-up digest.
+WRAP_COMMANDS = ("wrap", "summary", "recap")
+
+# Bare-text phrases (no leading slash) that mean "I'm done at this event — wrap
+# it up", routed to the wrap handler INSTEAD of being logged as a captured lead.
+# Kept deliberately TIGHT (exact match on the whole trimmed message, case-
+# insensitive) so it never hijacks a real capture like "done deal with Maria"
+# or "we finished negotiating terms".
+WRAP_PHRASES = frozenset({
+    "done", "wrap", "wrap up", "wrap it up", "that's a wrap", "thats a wrap",
+    "finished", "end of day", "end of event",
+})
+
+
+def _is_wrap_phrase(text: str) -> bool:
+    """True only when the WHOLE trimmed message is one of the wrap phrases."""
+    return text.strip().lower() in WRAP_PHRASES
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +311,117 @@ def get_webhook_info() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# End-of-event "wrap up"
+# ---------------------------------------------------------------------------
+# Telegram hard-caps a message at ~4096 chars; keep a safety margin and cap the
+# number of follow-up drafts we inline so the digest never gets rejected.
+_WRAP_CHAR_BUDGET = 3800
+_WRAP_MAX_DRAFTS = 6
+
+
+def _event_active_nudges(conference_id: str, limit: int = 6) -> list[dict]:
+    """Active warming nudges, SCOPED to contacts the rep actually has an
+    encounter with at this event. Mirrors today.py `_active_nudges` but
+    intersects on encounters.conference_id so the wrap only surfaces nudges
+    for people captured here. Read-only.
+    """
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT c.id, c.primary_name, c.primary_company, "
+            "c.nudge_text, c.updated_at "
+            "FROM contacts c "
+            "JOIN encounters e ON e.contact_id = c.id "
+            "WHERE c.nudge_active = 1 AND e.conference_id = ? "
+            "ORDER BY c.updated_at DESC LIMIT ?",
+            (conference_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _format_wrap(digest: dict, nudges: list[dict]) -> str:
+    """Build the Telegram wrap message: header + recommended follow-up drafts
+    + active nudges. Caps to the top drafts to stay under Telegram's limit."""
+    event_name = digest.get("event_name") or "this event"
+    count = digest.get("count", 0)
+    rec_count = digest.get("recommended_count", 0)
+    lines = [
+        f"📋 *Wrap-up — {event_name}*",
+        f"{count} captured · {rec_count} worth a follow-up",
+    ]
+
+    recommended = [d for d in digest.get("drafts", []) if d.get("recommended")]
+    shown = recommended[:_WRAP_MAX_DRAFTS]
+    if shown:
+        lines.append("\n*Ready-to-send drafts:*")
+    for d in shown:
+        name = d.get("name") or "?"
+        company = d.get("company") or "?"
+        subject = (d.get("subject") or "").strip()
+        body = (d.get("body") or "").strip()
+        block = f"\n*{name}* @ {company}"
+        if subject:
+            block += f"\n{subject}"
+        if body:
+            block += f"\n{body}"
+        lines.append(block)
+
+    text = "\n".join(lines)
+    # Truncate by dropping trailing drafts if we blew the budget.
+    while len(text) > _WRAP_CHAR_BUDGET and len(shown) > 1:
+        shown = shown[:-1]
+        kept = lines[: 3 + len(shown)] if any("Ready-to-send" in l for l in lines) else lines
+        text = "\n".join(kept)
+    truncated = len(shown) < len(recommended)
+    if truncated:
+        text += f"\n\n_+{len(recommended) - len(shown)} more drafts in the dashboard._"
+
+    if nudges:
+        nudge_lines = ["\n*Nudges:*"]
+        for n in nudges:
+            nm = n.get("primary_name") or "?"
+            nt = (n.get("nudge_text") or "").strip()
+            nudge_lines.append(f"💡 *{nm}* — {nt}" if nt else f"💡 *{nm}*")
+        text += "\n" + "\n".join(nudge_lines)
+
+    return text
+
+
+def _wrap_event(rep: dict, chat_id: int) -> dict:
+    """Handle an end-of-event wrap request: close the open capture session,
+    draft follow-ups for the rep's active event, gather event-scoped nudges,
+    and reply with a single digest message."""
+    active_conf = rep.get("active_conference_id")
+    if not active_conf:
+        send_message(
+            chat_id,
+            "No active event set — bind one from an event's Coverage panel first.",
+        )
+        return {"action": "wrap_no_event"}
+
+    # Wrapping the event means this batch of captures is closed out — reset the
+    # session so any future capture starts fresh.
+    voice.close_capture_session(rep["id"])
+
+    digest = followup.draft_for_event(active_conf)
+    if not digest.get("ok"):
+        send_message(chat_id, "Couldn't build the wrap-up for that event.")
+        return {"action": "wrap_failed", "error": digest.get("error")}
+
+    nudges = _event_active_nudges(active_conf)
+    send_message(chat_id, _format_wrap(digest, nudges))
+    return {
+        "action": "wrap",
+        "conference_id": active_conf,
+        "count": digest.get("count", 0),
+        "recommended_count": digest.get("recommended_count", 0),
+        "nudge_count": len(nudges),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Webhook handler
 # ---------------------------------------------------------------------------
 def handle_update(update: dict) -> dict:
@@ -385,7 +514,13 @@ def _dispatch_update(update: dict) -> dict:
         cmd, _, rest = text.partition(" ")
         cmd = cmd.lower().lstrip("/")
         rest = rest.strip()
-        if cmd in ("next", "done"):
+        # End-of-event wrap — MUST come before the session-break branch so
+        # /done isn't swallowed as a mere "next person" break. To a
+        # salesperson "done" means "I'm done at this event", so /done now
+        # routes to the wrap digest; /next remains the session-break command.
+        if cmd in WRAP_COMMANDS or cmd == "done":
+            return _wrap_event(rep, chat_id)
+        if cmd in ("next",):
             voice.close_capture_session(rep["id"])
             send_message(chat_id, "👍 New person — the next capture starts fresh.")
             return {"action": "session_break"}
@@ -411,7 +546,8 @@ def _dispatch_update(update: dict) -> dict:
             send_message(chat_id, "✏️ Updated.\n\n" + _intel_reply(result))
             return {"action": "fix", "encounter_id": last["id"], "field": field}
         # Unknown command → fall through (could be /start handled above, or noise)
-        send_message(chat_id, "Commands: /next (new person), /undo, /fix <field> <value>.")
+        send_message(chat_id, "Commands: /wrap (end-of-event recap), /next "
+                     "(new person), /undo, /fix <field> <value>.")
         return {"action": "unknown_command", "command": cmd}
 
     # Voice memo
@@ -498,6 +634,12 @@ def _dispatch_update(update: dict) -> dict:
         send_message(chat_id, _intel_reply(result))
         return {"action": "linkedin_encounter", "encounter_id": result["encounter_id"]}
 
+    # Bare-text end-of-event phrase ("done", "wrap up", …) → wrap digest, NOT a
+    # captured lead. Tight exact-match so real captures ("done deal with Maria")
+    # still flow through to capture below.
+    if text and _is_wrap_phrase(text):
+        return _wrap_event(rep, chat_id)
+
     # Plain text
     if text:
         try:
@@ -520,7 +662,7 @@ def _intel_reply(result: dict) -> str:
     struct = result.get("structured") or {}
     name = struct.get("name") or "?"
     company = struct.get("company") or "?"
-    title = struct.get("title") or ""
+    title = struct.get("title") or struct.get("role") or ""
     lines = [f"✅ Logged: *{name}* @ {company}"]
     if title:
         lines.append(f"_({title})_")

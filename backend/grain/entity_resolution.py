@@ -50,6 +50,31 @@ NICKNAMES = {
     "nick": "nicholas", "nicholas": "nicholas",
     "kate": "katherine", "kathy": "katherine", "katie": "katherine", "katherine": "katherine",
     "steve": "steven", "stephen": "steven", "steven": "steven",
+    # Common nicknames that diverge sharply from the legal first name — without
+    # these, a "nickname + job change" (e.g. Bill Turner @ Stripe → William
+    # Turner @ Adyen) folds to a low name score and is wrongly REJECTED, silently
+    # splitting one warming relationship into two contacts and breaking the arc.
+    "bill": "william", "will": "william", "willy": "william", "william": "william",
+    "rick": "richard", "rich": "richard", "dick": "richard", "richard": "richard",
+    "tony": "anthony", "anthony": "anthony",
+    "dave": "david", "david": "david",
+    "ed": "edward", "eddie": "edward", "ted": "edward", "edward": "edward",
+    "greg": "gregory", "gregory": "gregory",
+    "ron": "ronald", "ronald": "ronald",
+    "don": "donald", "donald": "donald",
+    "pat": "patrick", "patrick": "patrick",
+    "sam": "samuel", "sammy": "samuel", "samuel": "samuel",
+    "jen": "jennifer", "jenny": "jennifer", "jennifer": "jennifer",
+    "sue": "susan", "susie": "susan", "susan": "susan",
+    "kim": "kimberly", "kimberly": "kimberly",
+    "becky": "rebecca", "rebecca": "rebecca",
+    "meg": "margaret", "maggie": "margaret", "peggy": "margaret", "margaret": "margaret",
+    "fran": "frances", "frances": "frances", "francis": "francis",
+    "charlie": "charles", "chuck": "charles", "charles": "charles",
+    "ray": "raymond", "raymond": "raymond",
+    "gabe": "gabriel", "gabriel": "gabriel",
+    "nate": "nathan", "nathan": "nathan",
+    "vinny": "vincent", "vince": "vincent", "vincent": "vincent",
 }
 
 
@@ -206,6 +231,15 @@ def _factor_breakdown(enc: dict, contact_row: dict) -> dict:
         "company_similarity": _company_similarity(enc.get("company"), contact_row.get("primary_company")),
         "title_similarity": _title_similarity(
             enc.get("title") or enc.get("role"), contact_row.get("primary_title")),
+        # Fewest name tokens on either side: a bare first name ("John") has 1.
+        # token_set_ratio scores "John" ⊆ "John Smith" as a perfect 1.0, so
+        # without this guard a single first name + same company silently
+        # auto-merges into whichever full name it happens to be a prefix of —
+        # collapsing two different "John"s at the same employer.
+        "min_name_tokens": min(
+            len(_name_tokens(enc.get("name") or "")),
+            len(_name_tokens(contact_row.get("primary_name") or "")),
+        ),
     }
 
 
@@ -271,6 +305,16 @@ def _score_factors(f: dict, *, both_emails_present: bool = False) -> float:
         if title >= 0.85:
             base = max(base, 0.80)
         return min(0.80, base)
+
+    # --- Single first name (no surname) on either side is too thin to AUTO-merge
+    # on name+company alone: "John" @ Revolut could be any of several Johns. With
+    # no decisive key (handled above), cap a bare-first-name match into review so
+    # a human confirms rather than silently collapsing two people.
+    single_token_name = f.get("min_name_tokens", 2) < 2
+    if single_token_name and email != 1.0 and li != 1.0 and phone != 1.0:
+        if comp >= 0.95 and name >= 0.85:
+            return 0.78  # review band, not auto-merge
+        # otherwise fall through to the gentler bands below
 
     # --- Same company, varying name strength (no divergence detected).
     if comp >= 0.95 and name >= 0.85:

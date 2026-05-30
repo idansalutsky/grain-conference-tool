@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ... import db
+from ... import telegram
 
 router = APIRouter(prefix="/api", tags=["team"])
 
@@ -146,6 +147,111 @@ def assign_coverage(body: CoverageIn) -> dict:
     finally:
         conn.close()
     return {"id": cid, "conference_id": body.conference_id, "rep_id": body.rep_id}
+
+
+# ---------------------------------------------------------------------------
+# "Send a rep their trip" — one click → paste-ready handoff message + bind link
+# ---------------------------------------------------------------------------
+_MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _fmt_when(start_date: Optional[str]) -> str:
+    """'2026-08-10' → 'Aug 2026'. Best-effort; returns '' if unparseable."""
+    if not start_date or len(start_date) < 7:
+        return ""
+    try:
+        year = start_date[0:4]
+        month = int(start_date[5:7])
+        if 1 <= month <= 12:
+            return f"{_MONTHS[month]} {year}"
+    except (ValueError, IndexError):
+        pass
+    return ""
+
+
+def _event_line(name: str, city: Optional[str], when: str) -> str:
+    """One bullet: '• Money20/20 — Las Vegas, Oct 2026'."""
+    place = (city or "").strip()
+    bits = [b for b in (place, when) if b]
+    suffix = (" — " + ", ".join(bits)) if bits else ""
+    return f"• {name}{suffix}"
+
+
+@router.get("/reps/{rep_id}/event-links")
+def rep_event_links(rep_id: str) -> dict:
+    """One click → a paste-ready handoff message for a rep: their assigned
+    events + a SINGLE identity Telegram bind link they tap once to start
+    capturing in the field. The link is identity-only (conference_id=None) — the
+    rep redeems it once, then sets their active event from the dashboard.
+    """
+    conn = db.get_conn()
+    try:
+        rep = conn.execute(
+            "SELECT id, full_name FROM reps WHERE id = ?", (rep_id,)
+        ).fetchone()
+        if not rep:
+            raise HTTPException(404, "rep not found")
+        # Reuse the same coverage join shape as list_coverage, rep-scoped.
+        rows = conn.execute(
+            "SELECT conf.id, conf.name, conf.start_date, conf.city, conf.tier "
+            "FROM coverage c "
+            "JOIN conferences conf ON conf.id = c.conference_id "
+            "WHERE c.rep_id = ? "
+            "ORDER BY conf.start_date",
+            (rep_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    events = [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "start_date": r["start_date"],
+            "city": r["city"],
+            "tier": r["tier"],
+        }
+        for r in rows
+    ]
+
+    # ONE identity bind token (no specific active event) → one link to redeem.
+    token = telegram.issue_link_token(rep_id)
+    deep_link = telegram.deep_link(token)
+
+    first_name = (rep["full_name"] or "").strip().split(" ")[0] or "there"
+    if events:
+        n = len(events)
+        bullets = "\n".join(
+            _event_line(e["name"], e["city"], _fmt_when(e["start_date"]))
+            for e in events
+        )
+        message_text = (
+            f"Hi {first_name} — you're covering {n} "
+            f"{'event' if n == 1 else 'events'} this season:\n"
+            f"{bullets}\n\n"
+            "Tap to connect your Telegram for field capture "
+            f"(voice/photo/text → auto-logged): {deep_link}\n"
+            "Once connected, set your active event from the dashboard or just "
+            "start capturing."
+        )
+    else:
+        message_text = (
+            f"Hi {first_name} — no events are assigned to you yet, but you can "
+            "still get set up now.\n\n"
+            "Tap to connect your Telegram for field capture "
+            f"(voice/photo/text → auto-logged): {deep_link}\n"
+            "Once you're assigned to events, set your active one from the "
+            "dashboard and start capturing."
+        )
+
+    return {
+        "rep_id": rep["id"],
+        "rep_name": rep["full_name"],
+        "deep_link": deep_link,
+        "events": events,
+        "message_text": message_text,
+    }
 
 
 @router.delete("/coverage")

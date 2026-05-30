@@ -55,6 +55,44 @@ def test_name_collision_different_emails_review_only():
     assert conf >= 0.65, conf  # but surfaces for review
 
 
+def test_nickname_plus_job_change_reaches_review_not_reject():
+    """Bill Turner @ Stripe → William Turner @ Adyen (nickname + job change):
+    must REACH review so the cross-conference arc survives, never split silently."""
+    out = resolve_encounter(
+        {"name": "Bill Turner", "company": "Stripe"},
+        candidates=[{"id": "c1", "primary_name": "William Turner",
+                     "primary_company": "Adyen", "primary_email": None,
+                     "linkedin_handle": None}],
+    )
+    assert out is not None, "nickname+job-change was rejected → arc broken"
+    assert out.decision_hint == "review_needed", out.decision_hint
+    assert 0.65 <= out.confidence < 0.85, out.confidence
+
+
+def test_single_first_name_same_company_does_not_auto_merge():
+    """A bare first name ('John') + same company must NOT silently auto-merge
+    into 'John Smith' — there could be several Johns at Revolut."""
+    f = _factor_breakdown(
+        {"name": "John", "company": "Revolut"},
+        {"primary_name": "John Smith", "primary_company": "Revolut",
+         "primary_email": None, "linkedin_handle": None},
+    )
+    conf = _score_factors(f)
+    assert conf < 0.85, conf          # not auto
+    assert conf >= 0.65, conf          # but surfaced for review
+
+
+def test_single_first_name_with_decisive_email_still_auto_merges():
+    """The single-token guard must NOT block a decisive key: 'John' with a
+    matching email is still provably the same person → auto."""
+    f = _factor_breakdown(
+        {"name": "John", "company": "Revolut", "email": "j@revolut.com"},
+        {"primary_name": "John Smith", "primary_company": "Revolut",
+         "primary_email": "j@revolut.com", "linkedin_handle": None},
+    )
+    assert _score_factors(f) >= 0.85
+
+
 def test_resolve_empty_pool_returns_none():
     out = resolve_encounter({"name": "X"}, candidates=[])
     assert out is None

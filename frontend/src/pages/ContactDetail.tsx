@@ -130,9 +130,17 @@ export function ContactDetailPage() {
                 <h2 className="label">Latest approach brief</h2>
                 <BriefRateInline briefId={c.briefs[0].id} />
               </div>
-              <pre className="text-xs whitespace-pre-wrap text-ink-700 bg-ink-50 p-3 rounded">
-                {c.briefs[0].brief_text}
-              </pre>
+              <div className="rounded-md bg-ink-50/60 border border-ink-100 p-4 text-sm leading-relaxed text-ink-800 space-y-2">
+                {String(c.briefs[0].brief_text || "")
+                  .split(/\n{2,}/)
+                  .map((para: string, i: number) =>
+                    para.trim() ? (
+                      <p key={i} className="whitespace-pre-wrap">
+                        {para.trim()}
+                      </p>
+                    ) : null,
+                  )}
+              </div>
             </section>
           )}
         </div>

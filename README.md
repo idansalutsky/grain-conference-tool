@@ -103,9 +103,19 @@ discovery and brief generation hit the LLM.
 
 ## Deploy
 
-Simplest: `docker compose up -d --build` (runs both with zero config). Public
-URLs: backend → Render, frontend → Vercel. Both paths (and the keyless
-degradation matrix) are in `docs/DEPLOY.md`.
+The whole app — API **and** built React frontend — ships as **one Docker image
+served at a single URL** (the API lives at `/api` on the same origin).
+
+- **Public URL (recommended):** push to GitHub → Render → **New → Blueprint** →
+  pick the repo (the included `render.yaml` is auto-detected) → **Apply**. You
+  get one `https://…onrender.com` URL serving everything, a persistent disk for
+  the SQLite DB, and `/healthz` checks — no keys required.
+- **Local / VPS:** `docker compose up --build` → http://localhost:8000 serves
+  the whole app (DB persists in `./data`).
+
+A split Vercel-frontend + Render-backend deploy is still possible but no longer
+the recommended path. Full steps and the keyless degradation matrix are in
+`docs/DEPLOY.md`.
 
 ## Docs
 
@@ -113,7 +123,7 @@ degradation matrix) are in `docs/DEPLOY.md`.
 - `docs/CROSS_CONFERENCE.md` — entity resolution + arc + nudge calibration + edge cases
 - `docs/AI_STRATEGY.md` — every AI feature and why AI is the right tool for it
 - `docs/SCOPE_DECISIONS.md` — what's in, what's deliberately out, and why
-- `docs/DEPLOY.md` — Vercel + Render walk-through
+- `docs/DEPLOY.md` — single-URL deploy walk-through (Render Blueprint + Docker Compose)
 - `docs/VIDEO_SCRIPT.md` — walkthrough talking points
 
 ## Tests

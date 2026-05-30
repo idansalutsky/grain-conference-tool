@@ -1,0 +1,37 @@
+# Render Blueprint — ONE Docker web service that serves both the FastAPI API
+# and the built React SPA at a single https URL.
+#
+# Non-dev happy path: push this repo to GitHub, then in Render do
+#   New -> Blueprint -> pick this repo (render.yaml is auto-detected) -> Apply.
+# Render builds the Dockerfile and gives you https://<name>.onrender.com.
+# See docs/DEPLOY.md for the full step-by-step.
+services:
+  - type: web
+    name: grain-conference-tool
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter            # $7/mo, stays warm. `free` also works but cold-starts.
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    # Persistent disk so the SQLite DB survives deploys/restarts.
+    disk:
+      name: grain-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      # Render injects $PORT; the container honours it (Dockerfile CMD).
+      - key: PYTHONIOENCODING
+        value: utf-8
+      - key: DATA_DIR
+        value: /app/data
+      # ---- OPTIONAL integration keys (the app boots fine WITHOUT them) ----
+      # Leave unset to run in demo mode. You can also add these later in-app
+      # under Settings -> Integrations (in-app value overrides env).
+      - key: OPENROUTER_API_KEY
+        sync: false          # set in the Render dashboard if/when you have one
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: HUBSPOT_PRIVATE_APP_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

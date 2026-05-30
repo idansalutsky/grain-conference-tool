@@ -5,12 +5,15 @@ import { api } from "@/lib/api";
 import { TierBadge, PersonaBadge } from "@/components/Badges";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { AgentRunner } from "@/components/AgentRunner";
+import { InlineReason } from "@/components/InlineReason";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useToast, toastErrorMessage } from "@/components/Toast";
 
 export function ConferenceDetailPage() {
   const { id } = useParams();
   const { push: toast } = useToast();
+  // Which score delta is currently being argued (its reason input is open).
+  const [arguingDelta, setArguingDelta] = useState<number | null>(null);
   const conf = useQuery({
     queryKey: ["conference", id],
     queryFn: () => api.get<any>(`/api/conferences/${id}`),
@@ -43,6 +46,7 @@ export function ConferenceDetailPage() {
       }),
     onSuccess: (d) => {
       conf.refetch();
+      setArguingDelta(null);
       toast(
         "success",
         `Score ${d.delta > 0 ? "+" : ""}${d.delta} → ${d.score?.toFixed(1)} (tier ${d.tier})`,
@@ -109,22 +113,39 @@ export function ConferenceDetailPage() {
                 {[-5, -2, +2, +5].map((d) => (
                   <button
                     key={d}
-                    onClick={() => {
-                      const reason = window.prompt(
-                        `Reason for ${d > 0 ? "+" : ""}${d} score?`,
-                        d > 0 ? "high-value past attendance" : "underwhelming agenda",
-                      );
-                      if (reason !== null && reason.trim()) {
-                        adjustScore.mutate({ delta: d, reason: reason.trim() });
-                      }
-                    }}
+                    onClick={() => setArguingDelta((cur) => (cur === d ? null : d))}
                     disabled={adjustScore.isPending}
-                    className="btn-secondary text-xs px-2 py-1"
+                    aria-pressed={arguingDelta === d}
+                    className={
+                      "btn-secondary text-xs px-2 py-1 " +
+                      (arguingDelta === d ? "bg-ink-100 border-ink-300" : "")
+                    }
                   >
                     {d > 0 ? `+${d}` : d}
                   </button>
                 ))}
               </div>
+              <InlineReason
+                open={arguingDelta !== null}
+                title={
+                  arguingDelta !== null
+                    ? `Reason for ${arguingDelta > 0 ? "+" : ""}${arguingDelta} score`
+                    : ""
+                }
+                placeholder={
+                  arguingDelta !== null && arguingDelta > 0
+                    ? "high-value past attendance"
+                    : "underwhelming agenda"
+                }
+                confirmLabel="Apply adjustment"
+                pending={adjustScore.isPending}
+                onConfirm={(reason) => {
+                  if (arguingDelta !== null) {
+                    adjustScore.mutate({ delta: arguingDelta, reason });
+                  }
+                }}
+                onCancel={() => setArguingDelta(null)}
+              />
               <p className="text-[10px] text-ink-500 mt-1.5 italic">
                 Logged with your reason — auditable later.
               </p>
@@ -433,6 +454,8 @@ const PERSONA_OVERRIDES = [
 
 function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void }) {
   const { push: toast } = useToast();
+  // Which persona is being justified (its reason input is open).
+  const [pendingPersona, setPendingPersona] = useState<string | null>(null);
   const override = useMutation({
     mutationFn: ({ persona, reason }: { persona: string; reason: string }) =>
       api.post<any>(`/api/people/${p.id}/icp/override`, {
@@ -440,6 +463,7 @@ function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void
       }),
     onSuccess: () => {
       toast("success", "Persona overridden");
+      setPendingPersona(null);
       onAfterOverride();
     },
     onError: (e) => toast("error", toastErrorMessage(e)),
@@ -475,26 +499,21 @@ function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void
         <summary className="text-xs text-ink-500 cursor-pointer hover:text-ink-900 list-none">
           ⋯
         </summary>
-        <div className="absolute right-0 mt-1 bg-white rounded shadow-lg border border-ink-200 p-2 z-10 w-44">
+        <div className="absolute right-0 mt-1 bg-white rounded shadow-lg border border-ink-200 p-2 z-10 w-64">
           <div className="text-[10px] uppercase text-ink-500 mb-1">Override persona</div>
           <div className="flex flex-wrap gap-0.5">
             {PERSONA_OVERRIDES.map((k) => (
               <button
                 key={k}
-                onClick={() => {
-                  const reason = window.prompt(
-                    `Why classify as ${k}?`,
-                    "rep judgment on the ground",
-                  );
-                  if (reason?.trim()) {
-                    override.mutate({ persona: k, reason: reason.trim() });
-                  }
-                }}
+                onClick={() => setPendingPersona((cur) => (cur === k ? null : k))}
                 disabled={override.isPending}
+                aria-pressed={pendingPersona === k}
                 className={
                   "px-1.5 py-0.5 text-[10px] rounded border " +
                   (p.persona === k
                     ? "bg-brand text-white border-brand"
+                    : pendingPersona === k
+                    ? "bg-ink-100 text-ink-900 border-ink-300"
                     : "bg-ink-50 text-ink-700 border-ink-200 hover:bg-ink-100")
                 }
               >
@@ -502,6 +521,17 @@ function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void
               </button>
             ))}
           </div>
+          <InlineReason
+            open={pendingPersona !== null}
+            title={pendingPersona ? `Why classify as ${pendingPersona.replace("_", " ")}?` : ""}
+            placeholder="rep judgment on the ground"
+            confirmLabel="Override"
+            pending={override.isPending}
+            onConfirm={(reason) => {
+              if (pendingPersona) override.mutate({ persona: pendingPersona, reason });
+            }}
+            onCancel={() => setPendingPersona(null)}
+          />
         </div>
       </details>
     </div>

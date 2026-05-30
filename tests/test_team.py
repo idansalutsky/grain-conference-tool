@@ -60,3 +60,42 @@ def test_assign_unknown_rep_404():
     conf = client.post("/api/conferences", json={"name": "Ghost Coverage Event"}).json()["id"]
     r = client.post("/api/coverage", json={"conference_id": conf, "rep_id": "nope"})
     assert r.status_code == 404
+
+
+def test_event_links_returns_trip_message_and_link():
+    rep = client.post("/api/reps", json={"full_name": "Trip Rep", "region": "EU"}).json()["id"]
+    conf = client.post("/api/conferences", json={
+        "name": "FX Field Capture Expo", "start_date": "2026-10-05",
+        "city": "Lisbon", "country": "Portugal",
+    }).json()["id"]
+    client.post("/api/coverage", json={"conference_id": conf, "rep_id": rep})
+
+    r = client.get(f"/api/reps/{rep}/event-links")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rep_id"] == rep
+    assert body["rep_name"] == "Trip Rep"
+    # one assigned event surfaced
+    assert len(body["events"]) == 1
+    assert body["events"][0]["id"] == conf
+    assert body["events"][0]["name"] == "FX Field Capture Expo"
+    # a single t.me bind link, embedded in the paste-ready message
+    assert body["deep_link"].startswith("https://t.me/")
+    assert "?start=" in body["deep_link"]
+    assert body["deep_link"] in body["message_text"]
+    assert "Trip" in body["message_text"]          # first name
+    assert "FX Field Capture Expo" in body["message_text"]
+
+
+def test_event_links_no_coverage_still_returns_link():
+    rep = client.post("/api/reps", json={"full_name": "Lonely Rep"}).json()["id"]
+    r = client.get(f"/api/reps/{rep}/event-links")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["events"] == []
+    assert body["deep_link"].startswith("https://t.me/")
+    assert body["deep_link"] in body["message_text"]
+
+
+def test_event_links_unknown_rep_404():
+    assert client.get("/api/reps/nope/event-links").status_code == 404

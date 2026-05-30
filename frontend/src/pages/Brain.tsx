@@ -330,8 +330,12 @@ function ItemRow({ item, hue }: { item: BrainItem; hue: string }) {
           <div className="text-xs text-ink-500 truncate font-mono">{item.item_key}</div>
         </div>
         {typeof item.salience === "number" && (
-          <span className="stamp" style={stampStyle(hue, true)} title="salience">
-            sal {item.salience.toFixed(2)}
+          <span
+            className="stamp"
+            style={stampStyle(hue, true)}
+            title={`How strongly this is weighted (salience ${item.salience.toFixed(2)})`}
+          >
+            {item.salience >= 0.66 ? "high" : item.salience >= 0.33 ? "medium" : "low"} relevance
           </span>
         )}
         <button className="btn-ghost text-xs !px-2 !h-7" onClick={() => setExpanded((v) => !v)}>
@@ -618,8 +622,15 @@ function RollupCard({ scope, rollup }: { scope: RollupScope; rollup: Rollup }) {
             <div className="text-xs text-ink-500 font-mono truncate">{rollup.scope_id}</div>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <Chip hue={meta.hue} title="priority — how loudly this rollup asks for attention">
-              priority {rollup.priority.toFixed(2)}
+            <Chip
+              hue={meta.hue}
+              title={`How loudly this asks for attention (priority ${rollup.priority.toFixed(2)})`}
+            >
+              {rollup.priority >= 0.66
+                ? "high priority"
+                : rollup.priority >= 0.33
+                  ? "medium priority"
+                  : "low priority"}
             </Chip>
             <span className="text-xs text-ink-500" title="L0 dots behind this one judged summary">
               {rollup.source_count} source{rollup.source_count === 1 ? "" : "s"}
@@ -680,12 +691,13 @@ function RollupsSection() {
 
   return (
     <section>
-      <div className="rule-label mb-2">Middle-management rollups (L1) — one judged summary per entity</div>
+      <div className="rule-label mb-2">Rolled-up view — one judged summary per account, event, segment</div>
       <p className="text-sm text-ink-500 mb-4 max-w-[72ch]">
-        Between the dots and the brain. Each rollup compresses every L0 dot for one
-        entity into a single judged read — an arc, a verdict, a coverage call — with
-        the raw counts kept as chips. Nothing is dropped: there is exactly one rollup
-        per entity, and the total below proves it.
+        Every individual encounter is rolled into a single judged read per
+        entity — is the account warming, is the event worth returning to, is a
+        segment under-covered — with the raw counts kept as chips. Nothing is
+        dropped: there is exactly one summary per entity, and the total below
+        proves it.
       </p>
 
       {/* Scope toggle — Accounts / Events / Segments */}
@@ -829,11 +841,13 @@ function RunSection({
 
   return (
     <section>
-      <div className="rule-label mb-2">Run the brain — watch the loop</div>
-      <p className="text-sm text-ink-500 mb-4 max-w-[64ch]">
-        Type anything. The brain classifies it — a fact to capture, a request to
-        discover, or a question to answer — then routes it through the graph.
-        The path lights up node by node so you can see how it decided.
+      <div className="rule-label mb-2">Try it live — what gets remembered, and what doesn&apos;t</div>
+      <p className="text-sm text-ink-700 mb-4 max-w-[68ch]">
+        Type something a rep might say after a conversation. The tool decides
+        whether it&apos;s worth remembering — a useful fact, a new event to chase,
+        or a question to answer — and it will pause or refuse anything that
+        doesn&apos;t fit who you sell to. Try a real signal, then try a competitor
+        or an off-target lead and watch it hold the line.
       </p>
 
       <div className="card p-4 sm:p-5 mb-4">
@@ -1072,7 +1086,7 @@ function RunSection({
       {/* keep lastTrace referenced so highlighting stays in sync if reset */}
       {lastTrace.length === 0 && run == null && (
         <p className="text-xs text-ink-500">
-          Nothing run yet — the graph below shows the full architecture.
+          Nothing run yet — try one of the examples above to see it decide.
         </p>
       )}
     </section>
@@ -1288,55 +1302,85 @@ function Lane({
 // ===========================================================================
 
 export function BrainPage() {
-  useDocumentTitle("Brain");
+  useDocumentTitle("Team Intelligence");
   // The trace of the most recent run, shared so the graph can highlight it.
   const [lastTrace, setLastTrace] = useState<string[]>([]);
+  // Lets a technical reviewer reveal the under-the-hood sections on demand.
+  const [showInternals, setShowInternals] = useState(false);
 
   return (
     <div className="space-y-10">
       <div>
-        <h1 className="text-2xl mb-1">Grain Brain</h1>
-        <p className="text-sm text-ink-500 max-w-[68ch]">
-          A LangGraph memory subsystem behind the tool. It reads what reps tell
-          it, decides what kind of thing it is, runs it through a graph of nodes
-          — and pauses for a human before it acts on anything it discovers.
+        <h1 className="text-2xl mb-1">Team Intelligence</h1>
+        <p className="text-sm text-ink-700 max-w-[72ch]">
+          Shared team memory that filters out the noise. It only remembers
+          signal that fits who you sell to, connects the same person across
+          different events, and gets sharper every time a rep corrects it.
         </p>
-
-        {/* The hierarchy, in one line — three tiers, bottom to top. */}
-        <div className="card mt-4 p-3 sm:p-4">
-          <div className="rule-label mb-2">The memory is three tiers</div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm">
-            <span className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="stamp shrink-0" style={stampStyle("160", true)}>L0 · dots</span>
-              <span className="text-ink-500 truncate">
-                every encounter &amp; contact — never dropped (the tables)
-              </span>
-            </span>
-            <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
-            <span className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="stamp shrink-0" style={stampStyle("164")}>L1 · rollups</span>
-              <span className="text-ink-500 truncate">
-                one judged summary per entity (below)
-              </span>
-            </span>
-            <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
-            <span className="flex items-center gap-2 flex-1 min-w-0">
-              <span className="stamp shrink-0" style={stampStyle("245")}>L2 · brain</span>
-              <span className="text-ink-500 truncate">
-                cross-cutting spaces (above)
-              </span>
-            </span>
-          </div>
-        </div>
       </div>
 
-      {/* L2 — the brain's compressed cross-cutting memory. */}
-      <SpacesSection />
-      {/* L1 — middle-management rollups, one per entity. */}
-      <RollupsSection />
-      {/* The loop + architecture, as-is. */}
+      {/* VALUE-FIRST: the live loop + the human gate that refuses bad input. */}
       <RunSection lastTrace={lastTrace} onTrace={setLastTrace} />
-      <GraphSection lastTrace={lastTrace} />
+
+      {/* Under-the-hood — the memory tiers, rollups, and graph. Collapsed by
+          default so a salesperson sees value first; a reviewer can expand. */}
+      <section>
+        <div className="flex items-center justify-between gap-3 border-t border-ink-200 pt-6">
+          <div>
+            <h2 className="text-lg mb-1">How it works (under the hood)</h2>
+            <p className="text-sm text-ink-500 max-w-[68ch]">
+              The memory behind the loop, for the technically curious: what the
+              team has learned so far, how each account and event rolls up, and
+              the graph that decides where every input goes.
+            </p>
+          </div>
+          <button
+            className="btn-secondary text-xs shrink-0"
+            onClick={() => setShowInternals((v) => !v)}
+            aria-expanded={showInternals}
+          >
+            {showInternals ? "Hide details" : "Show how it works"}
+          </button>
+        </div>
+
+        {showInternals && (
+          <div className="space-y-10 mt-6 rise">
+            {/* The hierarchy, in one line — three tiers, bottom to top. */}
+            <div className="card p-3 sm:p-4">
+              <div className="rule-label mb-2">How the memory is layered</div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm">
+                <span className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="stamp shrink-0" style={stampStyle("160", true)}>Raw</span>
+                  <span className="text-ink-500 truncate">
+                    every encounter &amp; contact — never dropped (the tables)
+                  </span>
+                </span>
+                <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
+                <span className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="stamp shrink-0" style={stampStyle("164")}>Rolled up</span>
+                  <span className="text-ink-500 truncate">
+                    one judged summary per account, event, segment
+                  </span>
+                </span>
+                <span className="text-ink-300 hidden sm:block" aria-hidden>→</span>
+                <span className="flex items-center gap-2 flex-1 min-w-0">
+                  <span className="stamp shrink-0" style={stampStyle("245")}>Brain</span>
+                  <span className="text-ink-500 truncate">
+                    cross-cutting spaces the whole team shares
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* L2 — the brain's compressed cross-cutting memory. */}
+            <SpacesSection />
+            {/* L1 — middle-management rollups, one per entity. */}
+            <RollupsSection />
+            {/* The architecture diagram. */}
+            <GraphSection lastTrace={lastTrace} />
+          </div>
+        )}
+      </section>
     </div>
   );
 }

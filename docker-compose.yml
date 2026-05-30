@@ -1,6 +1,9 @@
-# Self-host: backend API on :8000. Runs with ZERO config — `docker compose up`
-# works with no .env and no keys (degrades gracefully). Add keys later in the
-# in-app UI (Settings -> Integrations) or via an optional .env file.
+# Self-host the WHOLE app (API + built React SPA) as one URL on :8000.
+# Runs with ZERO config — `docker compose up` works with no .env and no keys
+# (the app degrades gracefully). Add keys later in the in-app UI
+# (Settings -> Integrations) or via an optional .env file.
+#
+# Open http://localhost:8000  -> the SPA. The API is same-origin under /api.
 services:
   api:
     build: .
