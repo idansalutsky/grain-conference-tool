@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -322,20 +323,20 @@ function BreakdownPart({
 }
 
 function Logo({ url, name, size }: { url?: string | null; name: string; size: number }) {
+  const [failed, setFailed] = useState(false);
+  const showImg = url && !failed;
   return (
     <div
       className="rounded bg-ink-100 flex items-center justify-center shrink-0 overflow-hidden"
       style={{ width: size, height: size }}
     >
-      {url ? (
+      {showImg ? (
         <img
-          src={url}
+          src={url!}
           alt={name}
           className="object-contain"
           style={{ width: size * 0.8, height: size * 0.8 }}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
+          onError={() => setFailed(true)}
         />
       ) : (
         <span className="text-2xl font-bold text-ink-500">

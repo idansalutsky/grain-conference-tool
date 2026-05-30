@@ -64,7 +64,12 @@ export function ConferenceDetailPage() {
     const k = p.persona || "OTHER";
     (byPersona[k] = byPersona[k] || []).push(p);
   }
+  // Verified-first within each persona — confirmed leads surface above AI-surfaced ones.
+  for (const k of Object.keys(byPersona)) {
+    byPersona[k].sort((a, b) => Number(!!b.verified) - Number(!!a.verified));
+  }
   const order = ["BUYER", "CHAMPION", "PAIN_OWNER", "ENTRY_POINT", "GATEKEEPER", "INFLUENCER"];
+  const verifiedCount = items.filter((p) => p.verified).length;
 
   return (
     <div>
@@ -197,15 +202,23 @@ export function ConferenceDetailPage() {
           <section className="card p-4">
             <div className="flex justify-between items-baseline mb-1">
               <h2 className="label">Buying committee — who to approach</h2>
-              <span className="text-xs text-ink-500">
-                {items.filter((p) => p.verified).length} verified · {items.length} total
-              </span>
+              {verifiedCount > 0 ? (
+                <span className="text-xs text-ink-500">
+                  {verifiedCount} verified · {items.length} total
+                </span>
+              ) : items.length > 0 ? (
+                <span className="text-xs text-ink-500">
+                  {items.length} AI-surfaced lead{items.length === 1 ? "" : "s"} · verify before approaching
+                </span>
+              ) : null}
             </div>
-            <p className="text-xs text-ink-500 mb-3">
-              <span style={{ color: "oklch(0.45 0.11 158)" }}>✓ verified</span> = confirmed
-              against the live web by the agent today. Others are AI-surfaced leads —
-              verify before you approach (public attendee data goes stale fast).
-            </p>
+            {items.length > 0 && (
+              <p className="text-xs text-ink-500 mb-3">
+                <span style={{ color: "oklch(0.45 0.11 158)" }}>✓ verified</span> = confirmed
+                against the live web by the agent today. Others are AI-surfaced leads —
+                verify before you approach (public attendee data goes stale fast).
+              </p>
+            )}
             {order.map((k) => {
               const list = byPersona[k];
               if (!list?.length) return null;
@@ -224,7 +237,7 @@ export function ConferenceDetailPage() {
               );
             })}
             {items.length === 0 && (
-              <div className="text-sm text-ink-500">No targets discovered yet for this event.</div>
+              <EmptyCommittee raw={c.audience_composition_json} />
             )}
           </section>
         </div>
@@ -257,6 +270,58 @@ function AudienceMix({ raw }: { raw?: string | null }) {
       </div>
       <div className="flex h-2.5 rounded overflow-hidden bg-ink-100" title="Scraped audience composition">
         {segs.map((s) => <div key={s.label} style={{ flex: s.pct, background: s.color }} title={`${s.label}: ${s.pct}%`} />)}
+      </div>
+    </div>
+  );
+}
+
+// Empty buying-committee state — grounded in the MEASURED audience signal we
+// already have (audience_composition_json), not a blank. Honest about why we
+// don't pre-scrape named attendees, and points at the real next steps that
+// already live on this page (Coverage) and in the app (/capture).
+function EmptyCommittee({ raw }: { raw?: string | null }) {
+  let comp: any = null;
+  if (raw) {
+    try { comp = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { comp = null; }
+  }
+  const fin: number | null = comp?.cfo_treasury_finance_pct ?? null;
+  const commercial: number | null = comp?.marketing_sales_pct ?? null;
+  // Frame to the number: high finance density → buyers are here; otherwise lead
+  // with the commercial / entry-point crowd. Honest to whatever the data says.
+  const buyerHeavy = fin != null && fin >= 40;
+  let headline: string;
+  if (buyerHeavy) {
+    headline = `This event draws a ${fin}% finance / treasury audience — the buyers are in the room.`;
+  } else if (commercial != null && commercial > 0) {
+    headline = `Lighter on treasury, but ~${commercial}% commercial — work the entry points to get to the buyer.`;
+  } else if (fin != null) {
+    headline = `Measured at ${fin}% finance / treasury — read the audience mix before you commit a rep.`;
+  } else {
+    headline = "Named attendees are mapped in the field, not pre-scraped.";
+  }
+
+  return (
+    <div className="rounded-md border border-ink-200 bg-ink-50/40 p-4">
+      <p className="text-sm font-semibold text-ink-900">{headline}</p>
+      <p className="text-xs text-ink-500 mt-1.5 max-w-[58ch]">
+        We haven't mapped named attendees yet — committee intel is captured in the
+        field, not pre-scraped (public attendee data goes stale fast). Here's how
+        to work it:
+      </p>
+      <div className="flex flex-wrap gap-2 mt-3">
+        <a
+          href="#coverage"
+          onClick={(e) => {
+            e.preventDefault();
+            document.getElementById("coverage")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+          className="btn-secondary text-xs"
+        >
+          ↑ Assign a rep to cover it
+        </a>
+        <Link to="/capture" className="btn-primary text-xs">
+          Capture attendees live →
+        </Link>
       </div>
     </div>
   );
@@ -299,7 +364,7 @@ function Coverage({ conferenceId, conferenceName }: { conferenceId: string; conf
   });
 
   return (
-    <section className="card p-4 sm:p-5 mb-6">
+    <section id="coverage" className="card p-4 sm:p-5 mb-6 scroll-mt-4">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div>
           <h2 className="text-base font-semibold">Coverage</h2>

@@ -134,10 +134,12 @@ def lookup_domains_llm(names: list[str]) -> dict[str, Optional[str]]:
 
 
 def logo_url_for_domain(domain: Optional[str]) -> Optional[str]:
-    """Google s2 favicons — no API key, 128px, ~always exists for real domains."""
-    if not domain:
-        return None
-    return f"https://www.google.com/s2/favicons?domain={domain}&sz=128"
+    """No external favicon fetch. Every free favicon service (Google s2/faviconV2,
+    DuckDuckGo) 404s for some long-tail domains, producing broken images and
+    console errors — a half-done look. We render a clean, consistent monogram
+    (company initials) instead: zero console errors, zero broken images, no
+    external dependency. The `domain` is still stored for links / future use."""
+    return None
 
 
 # ---------------------------------------------------------------------------

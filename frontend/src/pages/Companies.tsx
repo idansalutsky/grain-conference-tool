@@ -20,6 +20,7 @@ interface Company {
   account_tier?: string | null;
   source_kind?: string | null;
   logo_url?: string | null;
+  industry?: string | null;
   people_count?: number | null;
   conference_count?: number | null;
   icp_score?: number | null;
@@ -50,14 +51,16 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function Logo({ url, name }: { url?: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const showImg = url && !failed;
   return (
     <div className="rounded bg-ink-100 flex items-center justify-center shrink-0 overflow-hidden w-9 h-9">
-      {url ? (
+      {showImg ? (
         <img
-          src={url}
+          src={url!}
           alt={name}
           className="object-contain w-7 h-7"
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          onError={() => setFailed(true)}
         />
       ) : (
         <span className="text-xs font-bold text-ink-500">{name.slice(0, 2).toUpperCase()}</span>
@@ -145,7 +148,7 @@ export function CompaniesPage() {
                 )}
               </div>
               <div className="text-xs text-ink-500 mt-0.5 truncate">
-                <span className="text-ink-700 font-medium">{c.vertical || "?"}</span>
+                <span className="text-ink-700 font-medium">{c.vertical || c.industry || "company"}</span>
                 {" · "}{(c.people_count ?? 0).toLocaleString()} people
                 {c.conference_count ? ` · ${c.conference_count} confs` : ""}
               </div>
