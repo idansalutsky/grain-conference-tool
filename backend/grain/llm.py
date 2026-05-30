@@ -140,6 +140,9 @@ EXTRACT_SYSTEM = (
     "  meeting_requested — boolean\n"
     "  linkedin       — a LinkedIn profile URL if one is visible/derivable, else null\n"
     "  phone          — a phone number if the rep stated one, else null\n"
+    "  mentioned_events — array of conference/event NAMES the person says they "
+    "attend, attended, or are going to (e.g. 'we were at Sibos', 'see you at "
+    "Money20/20'), else []. Only real named events, not generic phrases.\n"
     "  transcript     — verbatim transcript in original language\n"
     "Extract the email whenever it appears in the note (e.g. 'her email is "
     "michael@wise.com' → \"michael@wise.com\"). Email is a strong identity key "
@@ -264,7 +267,7 @@ def _fallback_text_to_lead(text: str) -> dict:
         "sentiment": sentiment, "meeting_requested": meeting,
         "phone": phone.group(1).strip() if phone else None,
         "linkedin": linkedin.group(0) if linkedin else None,
-        "email": email, "transcript": t,
+        "email": email, "mentioned_events": [], "transcript": t,
         "_extraction": "deterministic-fallback (no LLM key)",
     }
 

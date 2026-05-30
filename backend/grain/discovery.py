@@ -294,6 +294,59 @@ def list_pending_proposals(limit: int = 50) -> list[dict]:
     return out
 
 
+def mentioned_events_signal(limit: int = 12) -> list[dict]:
+    """Conversations as event intelligence: aggregate the events that captured
+    contacts told reps they attend/are going to (encounter.mentioned_events).
+
+    Returns [{name, count, contacts, tracked}] sorted by how many distinct
+    contacts mentioned it. `tracked` = we already have a matching conference;
+    an untracked event mentioned by multiple buyers is a strong, ground-up
+    discovery candidate ("3 of our buyers keep mentioning X → we should be there").
+    Read-only.
+    """
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT contact_id, structured_json FROM encounters "
+            "WHERE structured_json LIKE '%mentioned_events%'"
+        ).fetchall()
+        tracked_norms = {
+            _norm_conf_name(r["name"])
+            for r in conn.execute("SELECT name FROM conferences").fetchall()
+        }
+    finally:
+        conn.close()
+
+    agg: dict[str, dict] = {}
+    for r in rows:
+        try:
+            s = json.loads(r["structured_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for ev in (s.get("mentioned_events") or []):
+            name = (ev or "").strip()
+            if not name:
+                continue
+            norm = _norm_conf_name(name)
+            entry = agg.setdefault(
+                norm, {"name": name, "count": 0, "_contacts": set()})
+            entry["count"] += 1
+            if r["contact_id"]:
+                entry["_contacts"].add(r["contact_id"])
+            entry["tracked"] = norm in tracked_norms
+
+    out = []
+    for norm, e in agg.items():
+        out.append({
+            "name": e["name"],
+            "count": e["count"],
+            "contacts": len(e["_contacts"]),
+            "tracked": e.get("tracked", norm in tracked_norms),
+        })
+    out.sort(key=lambda x: (x["contacts"], x["count"]), reverse=True)
+    return out[:limit]
+
+
 def create_conference_from_payload(payload: dict, *, decided_by: str = "ui",
                                    source: str = "discovery") -> dict:
     """Promote a discovered-event payload into a real, scored conferences row.

@@ -24,6 +24,13 @@ export function DiscoveryPage() {
       api.get<{ proposals: any[] }>("/api/discovery/pending"),
   });
 
+  // Events your own buyers told reps they attend — ground-up event intelligence
+  // from real conversations (a second discovery source besides web search).
+  const mentioned = useQuery({
+    queryKey: ["discovery-mentioned"],
+    queryFn: () => api.get<{ events: any[] }>("/api/discovery/mentioned"),
+  });
+
   const search = useMutation({
     mutationFn: () =>
       api.post<{ proposals: any[] }>("/api/discovery/conferences", {
@@ -106,6 +113,34 @@ export function DiscoveryPage() {
         <div className="card p-3 mb-4 text-red-700 text-sm">
           {toastErrorMessage(search.error)}
         </div>
+      )}
+
+      {!!mentioned.data?.events?.length && (
+        <section className="card p-4 mb-4">
+          <div className="label mb-1">Events your buyers mention</div>
+          <p className="text-xs text-ink-500 mb-3 max-w-[60ch]">
+            Pulled from real conversations — when a contact tells a rep where
+            they go, that's a signal. An event several buyers mention that we
+            don't track yet is a strong one to add.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {mentioned.data.events.map((e: any) => (
+              <span
+                key={e.name}
+                className={
+                  "badge " +
+                  (e.tracked
+                    ? "bg-ink-100 text-ink-600"
+                    : "bg-amber-100 text-amber-900 border border-amber-300")
+                }
+                title={`${e.contacts} contact(s) mentioned this`}
+              >
+                {e.name} · {e.contacts}
+                {!e.tracked && " · not tracked"}
+              </span>
+            ))}
+          </div>
+        </section>
       )}
 
       <div className="label mb-2">

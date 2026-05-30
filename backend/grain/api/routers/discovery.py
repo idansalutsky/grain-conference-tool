@@ -30,6 +30,13 @@ def list_pending(limit: int = 50) -> dict:
     return {"proposals": discovery.list_pending_proposals(limit)}
 
 
+@router.get("/mentioned")
+def mentioned_events(limit: int = 12) -> dict:
+    """Events your buyers told reps they attend — ground-up event intelligence
+    from real conversations. Untracked ones are discovery candidates."""
+    return {"events": discovery.mentioned_events_signal(limit)}
+
+
 class ApprovalBody(BaseModel):
     decided_by: Optional[str] = "ui"
 

@@ -61,6 +61,43 @@ def test_placeholder_is_refused():
     assert _count_conferences() == before  # nothing added
 
 
+def test_mentioned_events_signal_aggregates_and_marks_tracked():
+    """Events buyers mention in conversation become a ranked signal; an event we
+    already track is marked tracked, an unknown one is a discovery candidate."""
+    import json as _json
+    # A tracked conference to match against.
+    discovery.create_conference_from_payload(
+        {"name": "Sibos Signal Test 2026", "region": "EU", "vertical": "payments",
+         "start_date": "2026-10-01", "source_url": "https://example.com/sibos"},
+        source="test",
+    )
+    conn = db.get_conn()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts (id, primary_name, created_at, "
+            "updated_at) VALUES ('c-me1','Mentioner One',?,?)",
+            (db.now_iso(), db.now_iso()),
+        )
+        for eid, cid, evs in [
+            ("e-me1", "c-me1", ["Sibos Signal Test 2026", "Phantom Forum 2026"]),
+            ("e-me2", "c-me1", ["Phantom Forum 2026"]),
+        ]:
+            conn.execute(
+                "INSERT OR REPLACE INTO encounters (id, contact_id, conference_id, "
+                "captured_at, capture_mode, structured_json) VALUES (?,?,?,?,?,?)",
+                (eid, cid, None, db.now_iso(), "telegram",
+                 _json.dumps({"name": "Mentioner One",
+                              "mentioned_events": evs})),
+            )
+    finally:
+        conn.close()
+    sig = {e["name"]: e for e in discovery.mentioned_events_signal()}
+    assert "Sibos Signal Test 2026" in sig and sig["Sibos Signal Test 2026"]["tracked"] is True
+    assert "Phantom Forum 2026" in sig
+    assert sig["Phantom Forum 2026"]["tracked"] is False
+    assert sig["Phantom Forum 2026"]["count"] >= 2
+
+
 def test_creation_is_idempotent_on_name():
     payload = {
         "name": "Test Dedup Summit 2026", "region": "EU", "vertical": "payments",
