@@ -259,10 +259,38 @@ CREATE INDEX IF NOT EXISTS idx_brain_rollup_priority ON brain_rollup(scope_type,
 """
 
 
+def _is_file_db(path) -> bool:
+    """True only for an on-disk DB. WAL is invalid for :memory: / shared-cache
+    in-memory DBs — guard so test/ephemeral DBs never error on PRAGMA WAL."""
+    p = str(path)
+    if not p or p == ":memory:":
+        return False
+    # URI in-memory form, e.g. "file::memory:?cache=shared" or "...mode=memory".
+    if p.startswith("file:") and ("mode=memory" in p or ":memory:" in p):
+        return False
+    return True
+
+
+def _apply_pragmas(conn: sqlite3.Connection) -> None:
+    """Apply connection-level concurrency pragmas (defensive, per-conn).
+
+    WAL is a database-level mode that persists once set on a file DB, but we set
+    it defensively here too (idempotent). busy_timeout makes concurrent writers
+    wait for the lock instead of failing immediately with "database is locked".
+    WAL is ONLY valid for on-disk DBs — skip it (and the WAL-only synchronous
+    setting) for :memory:/ephemeral test DBs.
+    """
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    if _is_file_db(config.DB_PATH):
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+
+
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH, isolation_level=None, timeout=30.0)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    _apply_pragmas(conn)
     return conn
 
 

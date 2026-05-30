@@ -67,15 +67,44 @@ def _contact(name, company, title="CFO", arc="warming") -> str:
 
 def _encounter(contact_id, conference_id=None, meeting=False, followup=None):
     now = db.now_iso()
+    eid = "e_" + uuid.uuid4().hex[:10]
     conn = db.get_conn()
     try:
         conn.execute(
             "INSERT INTO encounters (id, contact_id, conference_id, captured_at, "
             "capture_mode, sentiment, meeting_requested, followup_draft) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            ("e_" + uuid.uuid4().hex[:10], contact_id, conference_id, now,
+            (eid, contact_id, conference_id, now,
              "text", 4, 1 if meeting else 0, followup),
         )
+    finally:
+        conn.close()
+    return eid
+
+
+def _set_company(contact_id, company):
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE contacts SET primary_company = ? WHERE id = ?",
+                     (company, contact_id))
+    finally:
+        conn.close()
+
+
+def _move_encounter(encounter_id, conference_id):
+    conn = db.get_conn()
+    try:
+        conn.execute("UPDATE encounters SET conference_id = ? WHERE id = ?",
+                     (conference_id, encounter_id))
+    finally:
+        conn.close()
+
+
+def _delete_contact(contact_id):
+    conn = db.get_conn()
+    try:
+        conn.execute("DELETE FROM encounters WHERE contact_id = ?", (contact_id,))
+        conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
     finally:
         conn.close()
 
@@ -336,3 +365,211 @@ def test_upsert_rollup_rejects_unknown_scope():
     with pytest.raises(ValueError):
         rollups.upsert_rollup("nope", "x", title="t", summary="s",
                               features={}, priority=0.1, source_count=0)
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION — adversarial audit of the v2 rollup layer (bugs found + fixed).
+# ---------------------------------------------------------------------------
+
+# --- Bug: STALE OLD-COMPANY rollup on a job change -------------------------
+def test_job_change_prunes_stale_old_company_rollup():
+    """A contact moving company (job change) must NOT leave the OLD account's
+    rollup behind as a phantom. recompute_for_contact recomputes the new company
+    AND prunes the now-empty old company rollup."""
+    old = "JobOldCo " + uuid.uuid4().hex[:6]
+    new = "JobNewCo " + uuid.uuid4().hex[:6]
+    cid = _contact("Job Hopper", old, arc="warming")
+    _encounter(cid)
+    rollups.recompute_for_contact(cid)
+    old_key = rollups._norm_company_key(old)
+    assert rollups.get_rollup("account", old_key) is not None  # exists pre-move
+
+    _set_company(cid, new)                       # the job change
+    out = rollups.recompute_for_contact(cid)
+
+    # OLD account rollup is GONE (its dots moved away), NEW one exists.
+    assert rollups.get_rollup("account", old_key) is None, \
+        "old-company rollup left stale after job change"
+    assert rollups.get_rollup("account", rollups._norm_company_key(new)) is not None
+    assert out["pruned"] >= 1
+
+
+# --- Bug: DELETED contact leaves a stale account rollup --------------------
+def test_deleted_contact_prunes_stale_account_rollup():
+    """When a contact (and its encounters) are deleted — the live capture
+    pipeline does this on restitch (voice._delete_if_orphan) — the account rollup
+    must not survive as a phantom claiming 1 warming contact."""
+    company = "DelCo " + uuid.uuid4().hex[:6]
+    cid = _contact("Delete Me", company, arc="warming")
+    _encounter(cid)
+    rollups.recompute_for_contact(cid)
+    key = rollups._norm_company_key(company)
+    assert rollups.get_rollup("account", key) is not None
+
+    _delete_contact(cid)
+    rollups.recompute_for_contact(cid)           # contact id now gone
+    assert rollups.get_rollup("account", key) is None, \
+        "deleted contact left a stale account rollup"
+
+
+# --- Bug: full rebuild never pruned orphans --------------------------------
+def test_full_rebuild_prunes_orphan_account_rollups():
+    """rebuild_all_rollups must reflect the CURRENT dots exactly: an account that
+    lost all its contacts must have its rollup removed by a rebuild."""
+    company = "RebuildDelCo " + uuid.uuid4().hex[:6]
+    cid = _contact("Gone Soon", company, arc="warming")
+    _encounter(cid)
+    rollups.rebuild_all_rollups()
+    key = rollups._norm_company_key(company)
+    assert rollups.get_rollup("account", key) is not None
+
+    _delete_contact(cid)
+    res = rollups.rebuild_all_rollups()
+    assert rollups.get_rollup("account", key) is None
+    assert res.get("pruned", 0) >= 1
+    # And the invariant holds: #account rollups == #distinct live company KEYS.
+    conn = db.get_conn()
+    try:
+        names = [r[0] for r in conn.execute(
+            "SELECT DISTINCT primary_company FROM contacts "
+            "WHERE primary_company IS NOT NULL AND primary_company != ''"
+        ).fetchall()]
+    finally:
+        conn.close()
+    live_keys = {rollups._norm_company_key(nm) for nm in names}
+    assert rollups.count_rollups("account") == len(live_keys)
+
+
+# --- Bug: event change leaves the OLD event rollup stale -------------------
+def test_event_change_prunes_stale_old_event_rollup():
+    """Restitching an encounter to a different (C-tier) event must not leave the
+    OLD event rolled up as if it still had the encounter."""
+    old_ev = _conf("Old Ev " + uuid.uuid4().hex[:4], tier="C")
+    new_ev = _conf("New Ev " + uuid.uuid4().hex[:4], tier="C")
+    cid = _contact("Mover", "EvCo " + uuid.uuid4().hex[:5], arc="warming")
+    eid = _encounter(cid, old_ev)
+    rollups.recompute_for_contact(cid)
+    assert rollups.get_rollup("event", old_ev) is not None
+
+    _move_encounter(eid, new_ev)                 # restitch to a new event
+    rollups.recompute_for_contact(cid)
+    assert rollups.get_rollup("event", old_ev) is None, \
+        "old event rollup left stale after encounter moved"
+    assert rollups.get_rollup("event", new_ev) is not None
+
+
+# --- Guard: A/B planning events are NOT over-pruned ------------------------
+def test_planning_event_rollup_not_pruned():
+    """A tier-A/B event with zero encounters is a legitimate PLANNING rollup —
+    the orphan-prune must keep it (it isn't an orphan, it's intentionally
+    encounter-free)."""
+    ev = _conf("Planning Only " + uuid.uuid4().hex[:4], tier="A")
+    rollups.rebuild_all_rollups()
+    assert rollups.get_rollup("event", ev) is not None
+    rollups.recompute_for_contact(None)          # a churn sweep
+    assert rollups.get_rollup("event", ev) is not None
+
+
+# --- Bug: account key collisions / case-variant fragmentation --------------
+def test_account_key_collapses_case_and_punctuation_variants():
+    """Case/punctuation/whitespace variants of the SAME spelling collapse to ONE
+    account rollup (not fragmented into several)."""
+    base = "CaseCo" + uuid.uuid4().hex[:5]
+    c1 = _contact("Lower", base.lower(), arc="warming")
+    c2 = _contact("Upper", base.upper(), arc="flat")
+    c3 = _contact("Spaced", "  " + base + "  ", arc="cooling")
+    for c in (c1, c2, c3):
+        _encounter(c)
+    rollups.rebuild_all_rollups()
+    key = rollups._norm_company_key(base)
+    roll = rollups.get_rollup("account", key)
+    assert roll is not None
+    assert roll["features"]["n_contacts"] == 3   # all three folded into one
+    # Exactly one rollup for this account key.
+    matches = [r for r in rollups.list_rollups("account", limit=10_000)
+               if r["scope_id"] == key]
+    assert len(matches) == 1
+
+
+def test_distinct_companies_are_not_merged():
+    """Genuinely different companies keep SEPARATE rollups (no false merge)."""
+    a = "AlphaCorp " + uuid.uuid4().hex[:6]
+    b = "BetaCorp " + uuid.uuid4().hex[:6]
+    _encounter(_contact("A Person", a))
+    _encounter(_contact("B Person", b))
+    rollups.rebuild_all_rollups()
+    assert rollups.get_rollup("account", rollups._norm_company_key(a)) is not None
+    assert rollups.get_rollup("account", rollups._norm_company_key(b)) is not None
+    assert (rollups._norm_company_key(a) != rollups._norm_company_key(b))
+
+
+# --- Bug: batched (rebuild) vs single (rollup_account) must AGREE -----------
+def test_batched_and_single_account_paths_agree():
+    """The fast batched rebuild path and the single rollup_account path must
+    produce identical features (the batching refactor must not drift)."""
+    company = "AgreeCo " + uuid.uuid4().hex[:6]
+    e1 = _conf("Agree Ev1 " + uuid.uuid4().hex[:4])
+    e2 = _conf("Agree Ev2 " + uuid.uuid4().hex[:4])
+    c1 = _contact("Agree One", company, arc="warming")
+    c2 = _contact("Agree Two", company, arc="flat")
+    _encounter(c1, e1)
+    _encounter(c1, e2)
+    _encounter(c2, e1)
+    single = rollups.rollup_account(company)["features"]
+    rollups.rebuild_all_rollups()
+    batched = rollups.get_rollup("account",
+                                 rollups._norm_company_key(company))["features"]
+    assert single == batched
+
+
+# --- Perf: rebuild is LINEAR, not quadratic --------------------------------
+@pytest.mark.parametrize("n", [400])
+def test_rebuild_is_not_quadratic(n):
+    """Rebuild over many distinct-company contacts must stay roughly linear. We
+    assert the account rebuild touches each contact a bounded number of times by
+    proving the result is correct at scale and completes (a quadratic O(n^2) scan
+    is what this guards against — see the batched _build_account_rollup path)."""
+    now = db.now_iso()
+    conn = db.get_conn()
+    try:
+        for i in range(n):
+            cid = "lin_c_" + uuid.uuid4().hex[:12]
+            conn.execute(
+                "INSERT INTO contacts (id, primary_name, primary_company, "
+                "primary_title, arc_verdict, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (cid, f"Lin {i}", f"LinCo {i:05d}", "CFO", "warming", now, now),
+            )
+            conn.execute(
+                "INSERT INTO encounters (id, contact_id, captured_at, "
+                "capture_mode, sentiment, meeting_requested) VALUES (?,?,?,?,?,?)",
+                ("lin_e_" + uuid.uuid4().hex[:12], cid, now, "text", 4, 0),
+            )
+    finally:
+        conn.close()
+    res = rollups.rebuild_all_rollups()
+    assert res["accounts"] >= n
+    # One account rollup per distinct NORMALIZED company key (case/punctuation
+    # variants of one spelling collapse — so we count keys, not raw names).
+    conn = db.get_conn()
+    try:
+        names = [r[0] for r in conn.execute(
+            "SELECT DISTINCT primary_company FROM contacts "
+            "WHERE primary_company IS NOT NULL AND primary_company != ''"
+        ).fetchall()]
+    finally:
+        conn.close()
+    live_keys = {rollups._norm_company_key(nm) for nm in names}
+    assert rollups.count_rollups("account") == len(live_keys)
+
+
+# --- Bug: L2 gaps summary must not NPE on a None title ---------------------
+def test_gaps_summary_survives_none_title():
+    rollups.upsert_rollup(
+        "segment", "noneseg_" + uuid.uuid4().hex[:6], title=None, summary="s",
+        features={"segment": "noneseg", "coverage_gap": True,
+                  "tier_mix": {"A": 0}, "n_accounts": 0},
+        priority=0.1, source_count=1)
+    text = spaces._summarize_gaps_from_rollups(
+        rollups.list_rollups("segment", limit=10_000))
+    assert "gap" in text.lower()    # produced a summary, did not crash

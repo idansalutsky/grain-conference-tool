@@ -210,8 +210,74 @@ def audio_to_lead(audio_path: Path) -> dict:
     )
 
 
+def _fallback_text_to_lead(text: str) -> dict:
+    """Deterministic, key-free extraction for the text-capture path.
+
+    Weak vs the LLM, but it means a non-dev can host this and a rep can capture
+    a typed note with NO API key (the brief: "a non-developer should be able to
+    host"). Graceful degradation, not a 500. Clearly heuristic.
+    """
+    import re
+    t = (text or "").strip()
+    low = t.lower()
+    email = (re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", t) or [None])
+    email = email.group(0) if hasattr(email, "group") else None
+    phone = re.search(r"(\+?\d[\d\s().-]{7,}\d)", t)
+    linkedin = re.search(r"(?:https?://)?(?:www\.)?linkedin\.com/[\w\-/%.]+", t, re.I)
+    _STOP = r"(?:warm|cold|big|very|strong|keen|interested|now|still|owns|wants|nice|great)"
+    # company: "at/@/with/for/of <Company>" — stop at punctuation or a filler word
+    comp = re.search(r"\b(?:at|@|with|for|from|of)\s+([A-Z][\w&.\-]*(?:\s+[A-Z][\w&.\-]*){0,2})", t)
+    company = comp.group(1).strip(" .,–-") if comp else None
+    if company:
+        company = re.split(r"[.,;]\s|\s+" + _STOP + r"\b", company, flags=re.I)[0].strip(" .,–-") or None
+    # title: common finance/commercial titles (cut anything after " at/@/with")
+    tm = re.search(r"\b((?:Group\s+|Head of\s+|VP\s+|Vice President\s+|Chief\s+|Director of\s+|Senior\s+)?"
+                   r"(?:CFO|CEO|COO|CTO|CCO|CRO|Treasurer|Treasury|Finance|Payments|"
+                   r"Partnerships|Controller|FP&A)[\w &/]*)", t, re.I)
+    title = tm.group(1).strip() if tm else None
+    if title:
+        title = re.split(r"\s+(?:at|@|with|for|of)\b", title, flags=re.I)[0].strip(" .,–-") or None
+    # name: "Met <Name>" / "<Name>," at the start (case-insensitive verb)
+    nm = re.search(r"\b(?:met|spoke (?:to|with)|ran into|saw|caught|introduced to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})", t, re.I)
+    if not nm:
+        nm = re.search(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b", t)
+    name = nm.group(1).strip() if nm else None
+    sentiment = 3
+    if any(w in low for w in ("warm", "keen", "interested", "excited", "great chat", "strong fit", "loved")):
+        sentiment = 4
+    if any(w in low for w in ("very warm", "ready to", "wants to buy", "perfect fit")):
+        sentiment = 5
+    if any(w in low for w in ("not interested", "cold", "tire", "polite", "no budget")):
+        sentiment = 2
+    meeting = any(w in low for w in ("meeting", "call", "demo", "follow-up", "follow up",
+                                     "followup", "schedule", "catch up", "next week", "send pricing"))
+    signals = []
+    if any(w in low for w in ("fx", "hedg", "currency", "cross-border", "multi-currency", "payout")):
+        signals.append("fx_relevant")
+    if any(w in low for w in ("pain", "manual", "painful", "losing", "spread", "exposure")):
+        signals.append("explicit_pain")
+    if "strong fit" in low or "perfect fit" in low:
+        signals.append("strong_fit_signal")
+    return {
+        "name": name, "company": company, "title": title, "vertical": None,
+        "what_discussed": t[:240] or None, "soft_signals": signals,
+        "sentiment": sentiment, "meeting_requested": meeting,
+        "phone": phone.group(1).strip() if phone else None,
+        "linkedin": linkedin.group(0) if linkedin else None,
+        "email": email, "transcript": t,
+        "_extraction": "deterministic-fallback (no LLM key)",
+    }
+
+
 def text_to_lead(text: str) -> dict:
-    """Text relay → structured lead. Same schema as audio."""
+    """Text relay → structured lead. Same schema as audio.
+
+    Degrades gracefully: with no OpenRouter key, a deterministic heuristic
+    extractor runs so typed capture still works (the "type a quick note" path
+    the field interface relies on). With a key, the LLM does the real extraction.
+    """
+    if not config.OPENROUTER_API_KEY:
+        return _fallback_text_to_lead(text)
     messages = [
         {"role": "system", "content": EXTRACT_SYSTEM},
         {"role": "user", "content": (
@@ -219,7 +285,12 @@ def text_to_lead(text: str) -> dict:
             f"(not voice — text relay):\n\n\"\"\"\n{text}\n\"\"\""
         )},
     ]
-    return chat_json(messages, temperature=0.0, max_tokens=1024)
+    try:
+        return chat_json(messages, temperature=0.0, max_tokens=1024)
+    except LLMError:
+        # Key present but the call failed (rate limit / network) — don't 500 the
+        # rep on the show floor; fall back to the deterministic extractor.
+        return _fallback_text_to_lead(text)
 
 
 # Image extensions OpenRouter/Gemini accept as inline data URIs.

@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from ... import config, db, voice
+from ... import config, db, llm, voice
 
 router = APIRouter(prefix="/api/encounters", tags=["encounters"])
 
@@ -106,10 +106,15 @@ async def capture_voice(
     local = config.AUDIO_DIR / f"web_{uuid.uuid4().hex[:12]}{suffix}"
     with local.open("wb") as f:
         shutil.copyfileobj(audio.file, f)
-    result = voice.capture_voice_fast(
-        audio_path=local, rep_id=rep_id,
-        conference_id=conference_id, capture_mode="web_voice",
-    )
+    try:
+        result = voice.capture_voice_fast(
+            audio_path=local, rep_id=rep_id,
+            conference_id=conference_id, capture_mode="web_voice",
+        )
+    except llm.LLMError:
+        return {"ok": False, "needs_key": True,
+                "reason": "Voice transcription needs an OpenRouter key (add one in "
+                          "Settings → Integrations) — or type the note instead."}
     if result.get("contact_id") and result.get("cascade_status") == "pending":
         background_tasks.add_task(voice.run_cascade_in_background, result["contact_id"])
     return result
@@ -136,10 +141,15 @@ async def capture_image(
     local = config.AUDIO_DIR / f"badge_{uuid.uuid4().hex[:12]}{suffix}"
     with local.open("wb") as f:
         shutil.copyfileobj(image.file, f)
-    result = voice.capture_image_fast(
-        image_path=local, rep_id=rep_id,
-        conference_id=conference_id, capture_mode="badge_photo",
-    )
+    try:
+        result = voice.capture_image_fast(
+            image_path=local, rep_id=rep_id,
+            conference_id=conference_id, capture_mode="badge_photo",
+        )
+    except llm.LLMError:
+        return {"ok": False, "needs_key": True,
+                "reason": "Badge OCR needs an OpenRouter key (add one in Settings → "
+                          "Integrations) — or type the name instead."}
     if result.get("contact_id") and result.get("cascade_status") == "pending":
         background_tasks.add_task(voice.run_cascade_in_background, result["contact_id"])
     return result

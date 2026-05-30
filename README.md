@@ -42,10 +42,11 @@ once, talks, and gets a structured lead back in a few seconds. See
 ## Quick start (local, ~5 minutes)
 
 ```bash
-# 1. Configure — OPENROUTER_API_KEY is the only required key
-cp .env.example .env        # paste your OpenRouter key
+# 1. (optional) configure keys — the app boots & degrades gracefully with none.
+#    You can skip this and add keys later in-app (Settings → Integrations).
+cp .env.example .env        # every var is optional; paste an OpenRouter key for full AI
 
-# 2a. Run via Docker
+# 2a. Run via Docker — works with zero config
 docker compose up --build   # → http://localhost:8000
 
 # 2b. …or run the two processes directly
@@ -69,11 +70,15 @@ python -m backend.seed_demo    # the cross-conference demo: 6 sample contacts, a
 > *intelligence reading them* (matching, arc, nudge) is the real engine: the
 > seeder runs them through the live pipeline and persists whatever it produces.
 
-## Env vars (every key configured at deploy time — none hardcoded)
+## Env vars (all optional — none hardcoded, keys go in the in-app Settings)
+
+Nothing here is required to boot. Keys are configured by the user in
+**Settings → Integrations** (stored in the DB, override any env var at runtime);
+env vars are just a convenience for headless hosting.
 
 | Var | Required? | Purpose |
 |---|---|---|
-| `OPENROUTER_API_KEY` | ✅ | Universal LLM gateway (Gemini for extraction, Perplexity Sonar for discovery) |
+| `OPENROUTER_API_KEY` | optional* | Universal LLM gateway (Gemini extraction, Perplexity Sonar discovery). *Without it, capture/brain fall back to deterministic extraction; voice/photo/LinkedIn extraction need it. |
 | `TELEGRAM_BOT_TOKEN` | optional | Field capture via Telegram; unset → web capture only |
 | `HUBSPOT_PRIVATE_APP_TOKEN` | optional | Unset → HubSpot push runs in dry-run mode |
 | `DATA_DIR` | optional | Default `./data` — SQLite + audio cache live here |
@@ -98,7 +103,9 @@ discovery and brief generation hit the LLM.
 
 ## Deploy
 
-Frontend → Vercel, backend → Render. ~20-minute walkthrough in `docs/DEPLOY.md`.
+Simplest: `docker compose up -d --build` (runs both with zero config). Public
+URLs: backend → Render, frontend → Vercel. Both paths (and the keyless
+degradation matrix) are in `docs/DEPLOY.md`.
 
 ## Docs
 

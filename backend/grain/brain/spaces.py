@@ -436,7 +436,10 @@ def _summarize_gaps_from_rollups(seg_rollups: list[dict]) -> str:
         return "[gaps] no segments rolled up yet."
     gaps = [r for r in seg_rollups if (r["features"] or {}).get("coverage_gap")]
     gap_str = "; ".join(
-        f"{r['title'].replace('Segment: ','')} "
+        # Prefer the segment name from features; fall back to the (possibly None)
+        # title. Guard against a None title so a malformed rollup can't NPE the
+        # whole space summary.
+        f"{(r.get('features') or {}).get('segment') or (r.get('title') or '').replace('Segment: ', '') or '?'} "
         f"(A={(r['features'] or {}).get('tier_mix',{}).get('A',0)}, "
         f"{(r['features'] or {}).get('n_accounts',0)} accounts)"
         for r in gaps

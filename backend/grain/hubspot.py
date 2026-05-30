@@ -195,6 +195,15 @@ def ensure_custom_properties(token: Optional[str] = None) -> dict:
         return {"ok": False, "dry_run": True, "reason": "no_token",
                 "created": [], "existing": [], "failed": []}
 
+    # Validate the token first (cheap, one GET). A bad/expired token would
+    # otherwise produce 8 identical 401 "failures" — a confusing wall for a
+    # non-dev who just pasted the wrong key. Bail early with one clear reason.
+    conn_check = test_connection(token)
+    if not conn_check.get("connected"):
+        return {"ok": False, "reason": conn_check.get("reason", "not_connected"),
+                "connection": conn_check,
+                "created": [], "existing": [], "failed": []}
+
     created: list[str] = []
     existing: list[str] = []
     failed: list[dict] = []

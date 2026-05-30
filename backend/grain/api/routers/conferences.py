@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from ... import db, scoring
@@ -142,13 +142,23 @@ class ScoreAdjust(BaseModel):
 
 
 @router.post("/{conference_id}/score/adjust")
-def adjust_score(conference_id: str, body: ScoreAdjust) -> dict:
+def adjust_score(
+    conference_id: str,
+    body: ScoreAdjust,
+    background_tasks: BackgroundTasks,
+) -> dict:
     """Human-in-the-loop manual score adjustment. The rep can argue with the
     7-factor model when reality on the ground says otherwise.
 
     DEFECT 6: the adjusted score is persisted as a sticky OVERRIDE (via
     scoring.set_score_override), so the next /rescore respects it instead of
     silently wiping the human's call back to the model number.
+
+    SCALE FIX: this endpoint MUST NOT block on a full rescore_all() (re-scoring
+    all ~195 events). We update the ONE adjusted conference synchronously and
+    return immediately; the global rescore (which only refreshes other events'
+    model breakdowns, never touching this sticky override) is scheduled in the
+    BACKGROUND so rapid sequential adjusts each return fast.
     """
     conn = db.get_conn()
     try:
@@ -167,7 +177,8 @@ def adjust_score(conference_id: str, body: ScoreAdjust) -> dict:
         )
     finally:
         conn.close()
-    # Pin the override so rescore_all() won't overwrite it.
+    # Pin the override so rescore_all() won't overwrite it. (Synchronous: the
+    # sticky override must be durable BEFORE the background rescore can run.)
     scoring.set_score_override(conference_id, after)
     db.log_feedback(
         decision_kind="conference_score_adjust",
@@ -176,4 +187,8 @@ def adjust_score(conference_id: str, body: ScoreAdjust) -> dict:
         after={"score": after, "tier": new_tier, "delta": body.delta},
         reason=body.reason, decided_by=body.decided_by,
     )
+    # Refresh every OTHER event's model breakdown shortly after, off the request
+    # path. rescore_all() honours this conference's sticky override, so the rep's
+    # call is never clobbered; other tiers just catch up moments later.
+    background_tasks.add_task(scoring.rescore_all)
     return {"score": after, "tier": new_tier, "delta": body.delta, "before": before}

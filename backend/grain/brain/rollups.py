@@ -350,14 +350,16 @@ def rollup_account(company: str) -> Optional[dict]:
     key = _norm_company_key(company)
     conn = db.get_conn()
     try:
-        # Resolve a display name for the account from any matching contact.
-        contacts = [dict(r) for r in conn.execute(
+        # SINGLE-account path (recompute hook / on-demand). The normalized key is
+        # a Python transform we can't push into SQL, so this reads the contacts
+        # table and matches in Python. That's fine for ONE account, but calling
+        # this once-per-company in a bulk rebuild is O(n^2) — so rebuild_all_rollups
+        # does NOT use this; it batches the reads (see _build_account_rollup).
+        contacts = [c for c in (dict(r) for r in conn.execute(
             "SELECT id, primary_name, primary_company, primary_title, "
             "arc_verdict, arc_summary, updated_at FROM contacts "
             "WHERE primary_company IS NOT NULL AND primary_company != ''",
-        ).fetchall()]
-        contacts = [c for c in contacts
-                    if _norm_company_key(c.get("primary_company")) == key]
+        ).fetchall()) if _norm_company_key(c.get("primary_company")) == key]
         if not contacts:
             return None
         contact_ids = [c["id"] for c in contacts]
@@ -368,9 +370,18 @@ def rollup_account(company: str) -> Optional[dict]:
         ).fetchall()]
     finally:
         conn.close()
+    return _build_account_rollup(key, company, contacts, enc_rows)
 
+
+def _build_account_rollup(key: str, fallback_name: str, contacts: list[dict],
+                          enc_rows: list[dict]) -> Optional[dict]:
+    """Pure builder: judge ONE account from its already-fetched contacts +
+    encounters. Shared by rollup_account (single) and rebuild_all_rollups
+    (batched), so the single and bulk paths produce IDENTICAL rollups."""
+    if not contacts:
+        return None
     display_name = next((c.get("primary_company") for c in contacts
-                         if c.get("primary_company")), company)
+                         if c.get("primary_company")), fallback_name)
     n_contacts = len(contacts)
     n_encounters = len(enc_rows)
     events_spanned = len({r.get("conference_id") for r in enc_rows
@@ -539,37 +550,63 @@ def rebuild_all_rollups() -> dict:
             "               WHERE conference_id IS NOT NULL) "
             "   OR c.tier IN ('A','B')"
         ).fetchall()]
-        # Accounts: every distinct company that has a contact (by normalized name).
-        company_names = [r["primary_company"] for r in conn.execute(
-            "SELECT DISTINCT primary_company FROM contacts "
-            "WHERE primary_company IS NOT NULL AND primary_company != ''"
-        ).fetchall()]
         # Segments: every distinct vertical.
         segments = [r["vertical"] for r in conn.execute(
             "SELECT DISTINCT vertical FROM conferences "
             "WHERE vertical IS NOT NULL AND vertical != ''"
         ).fetchall()]
+        # PERFORMANCE FIX — batch the account reads. The old code called
+        # rollup_account(name) per company, and EACH call scanned the WHOLE
+        # contacts table → O(companies × contacts) (quadratic, ~3× per doubling
+        # measured). Here we read ALL contacts + ALL their encounters ONCE and
+        # group them in Python by normalized company key, so the account rebuild
+        # is LINEAR. Identical rollups (same _build_account_rollup builder).
+        all_contacts = [dict(r) for r in conn.execute(
+            "SELECT id, primary_name, primary_company, primary_title, "
+            "arc_verdict, arc_summary, updated_at FROM contacts "
+            "WHERE primary_company IS NOT NULL AND primary_company != ''"
+        ).fetchall()]
+        all_enc = [dict(r) for r in conn.execute(
+            "SELECT id, contact_id, conference_id, captured_at, meeting_requested "
+            "FROM encounters WHERE contact_id IS NOT NULL"
+        ).fetchall()]
     finally:
         conn.close()
 
-    # Dedupe accounts by normalized key (so 'Maersk' / 'A.P. Moller Maersk' don't
-    # double-count — one rollup per real account).
-    seen_acct: set[str] = set()
+    # Group contacts by normalized account key; index encounters by contact_id.
+    # One rollup per DISTINCT normalized key — case / punctuation / whitespace
+    # variants of the SAME spelling collapse together (e.g. 'Stripe' / 'stripe'
+    # / 'STRIPE'). NOTE: this does NOT unify different spellings of one company
+    # ('Stripe' vs 'Stripe, Inc.' vs 'Maersk' vs 'A.P. Moller Maersk') — those
+    # are deliberately NOT merged, because suffix-stripping would risk merging
+    # genuinely-distinct companies (a worse bug than fragmenting one).
+    enc_by_contact: dict[str, list[dict]] = {}
+    for e in all_enc:
+        enc_by_contact.setdefault(e["contact_id"], []).append(e)
+    acct_groups: dict[str, tuple[str, list[dict], list[dict]]] = {}
+    for c in all_contacts:
+        key = _norm_company_key(c.get("primary_company"))
+        name, cs, es = acct_groups.get(key, (c.get("primary_company"), [], []))
+        cs.append(c)
+        es.extend(enc_by_contact.get(c["id"], ()))
+        acct_groups[key] = (name, cs, es)
+
+    live_accounts: set[str] = set()
     n_acct = 0
-    for name in company_names:
-        key = _norm_company_key(name)
-        if key in seen_acct:
-            continue
-        seen_acct.add(key)
-        if rollup_account(name):
+    for key, (name, cs, es) in acct_groups.items():
+        if _build_account_rollup(key, name, cs, es):
+            live_accounts.add(key)
             n_acct += 1
 
+    live_events: set[str] = set()
     n_event = 0
     for cid in event_ids:
         if rollup_event(cid):
+            live_events.add(cid)
             n_event += 1
 
     seen_seg: set[str] = set()
+    live_segments: set[str] = set()
     n_seg = 0
     for seg in segments:
         sk = (seg or "").strip().lower()
@@ -577,10 +614,50 @@ def rebuild_all_rollups() -> dict:
             continue
         seen_seg.add(sk)
         if rollup_segment(seg):
+            live_segments.add(sk)
             n_seg += 1
 
+    # ORPHAN PRUNE — a full rebuild reflects the CURRENT dots exactly. Any rollup
+    # whose entity no longer exists (a deleted contact emptied an account, a
+    # restitched encounter emptied an event, a vertical disappeared) is stale and
+    # must be removed, or it pollutes the L2 space summaries / query forever.
+    pruned = _prune_orphan_rollups({"account": live_accounts,
+                                    "event": live_events,
+                                    "segment": live_segments})
+
     return {"events": n_event, "accounts": n_acct, "segments": n_seg,
-            "total": n_event + n_acct + n_seg}
+            "total": n_event + n_acct + n_seg, "pruned": pruned}
+
+
+def _prune_orphan_rollups(live: dict[str, set[str]]) -> int:
+    """Delete rollups whose (scope_type, scope_id) is no longer a live entity.
+
+    `live` maps each scope_type to the set of scope_ids that DO exist after a
+    rebuild. Any rollup row for a scope_type in `live` whose scope_id is not in
+    that set is an orphan (its dots are gone) and is deleted. Returns the count.
+    """
+    if not live:
+        return 0
+    conn = db.get_conn()
+    try:
+        victims: list[tuple[str, str]] = []
+        for scope_type, ids in live.items():
+            rows = conn.execute(
+                "SELECT scope_id FROM brain_rollup WHERE scope_type = ?",
+                (scope_type,),
+            ).fetchall()
+            for r in rows:
+                if r["scope_id"] not in ids:
+                    victims.append((scope_type, r["scope_id"]))
+        if victims:
+            conn.executemany(
+                "DELETE FROM brain_rollup WHERE scope_type = ? AND scope_id = ?",
+                victims,
+            )
+            log.info("pruned %d orphan rollup(s): %s", len(victims), victims[:10])
+    finally:
+        conn.close()
+    return len(victims)
 
 
 # ---------------------------------------------------------------------------
@@ -589,10 +666,22 @@ def rebuild_all_rollups() -> dict:
 def recompute_for_contact(contact_id: str) -> dict:
     """After a capture touches `contact_id`, recompute the affected account +
     event rollup(s). Best-effort: wrapped by the caller so it never breaks
-    capture. Returns what was recomputed.
+    capture. Returns what was recomputed (and any stale rollups pruned).
+
+    CHURN-SAFE: a capture can MOVE a contact (job change → new company) or
+    restitch an encounter (→ new event), and the live capture pipeline DELETES a
+    contact when its last encounter is restitched away (voice._delete_if_orphan).
+    Recomputing only the contact's CURRENT company/events would leave the OLD
+    account/event rollups stale forever (a phantom account that still says
+    "1 warming contact"). So after recomputing the current entities we also PRUNE
+    any account/event rollup whose entity no longer has live dots. Account/event
+    rollup counts are bounded by the number of entities, so this stays cheap.
     """
-    out: dict[str, Any] = {"account": None, "events": []}
+    out: dict[str, Any] = {"account": None, "events": [], "pruned": 0}
     if not contact_id:
+        # Even with no contact id we may have been called after a deletion; a
+        # cheap orphan sweep keeps the table honest without touching the wire.
+        out["pruned"] = _prune_orphans_for_live_dots()
         return out
     conn = db.get_conn()
     try:
@@ -612,7 +701,41 @@ def recompute_for_contact(contact_id: str) -> dict:
     for cid in ev_ids:
         if rollup_event(cid):
             out["events"].append(cid)
+    # Prune the OLD company / OLD event rollups (now empty) plus any other orphan.
+    out["pruned"] = _prune_orphans_for_live_dots()
     return out
+
+
+def _prune_orphans_for_live_dots() -> int:
+    """Delete account/event rollups whose entity no longer has any live dots.
+
+    Cheap, churn-driven cleanup: recompute connects the CURRENT dots, but a job
+    change / restitch / contact deletion can leave the OLD account or event with
+    a rollup but zero dots. We compute the set of accounts (by normalized company
+    key) and events (conference_id) that STILL have at least one dot, then prune
+    account/event rollups outside those sets. Segments are NOT pruned here (they
+    derive from conferences, which captures don't delete); the full rebuild owns
+    segment pruning.
+    """
+    conn = db.get_conn()
+    try:
+        companies = [r["primary_company"] for r in conn.execute(
+            "SELECT DISTINCT primary_company FROM contacts "
+            "WHERE primary_company IS NOT NULL AND primary_company != ''"
+        ).fetchall()]
+        live_events = {r["conference_id"] for r in conn.execute(
+            "SELECT DISTINCT conference_id FROM encounters "
+            "WHERE conference_id IS NOT NULL"
+        ).fetchall()}
+        # An event rollup can legitimately exist with no encounters when the
+        # conference is tier A/B (a planning rollup). Keep those.
+        live_events |= {r["id"] for r in conn.execute(
+            "SELECT id FROM conferences WHERE tier IN ('A','B')"
+        ).fetchall()}
+    finally:
+        conn.close()
+    live_accounts = {_norm_company_key(c) for c in companies}
+    return _prune_orphan_rollups({"account": live_accounts, "event": live_events})
 
 
 # ---------------------------------------------------------------------------

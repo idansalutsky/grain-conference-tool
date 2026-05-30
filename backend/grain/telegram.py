@@ -296,15 +296,40 @@ def get_webhook_info() -> dict:
 # Webhook handler
 # ---------------------------------------------------------------------------
 def handle_update(update: dict) -> dict:
-    """Process one Telegram webhook update. Returns a summary."""
+    """Process one Telegram webhook update. Returns a summary.
+
+    This is the public webhook entry point and MUST NOT raise: a thrown
+    exception here would 500 the public ``/api/telegram/webhook`` route, and
+    Telegram retries 5xx — turning one bad update into a retry storm. Every
+    failure (malformed payload, DB hiccup, unexpected message shape) is caught
+    and mapped to a structured ``{action: "error"|"ignored", ...}`` summary so
+    the webhook always answers 200.
+    """
+    if not isinstance(update, dict):
+        return {"action": "ignored", "reason": "update not a dict"}
+    try:
+        return _dispatch_update(update)
+    except Exception as exc:  # noqa: BLE001 — webhook must never 500
+        log.exception("handle_update crashed on update_id=%s: %s",
+                      update.get("update_id"), exc)
+        return {"action": "error", "error": str(exc)[:200]}
+
+
+def _dispatch_update(update: dict) -> dict:
+    """Route one update to the right capture. Wrapped by ``handle_update``."""
     msg = update.get("message") or update.get("edited_message") or {}
-    if not msg:
+    if not isinstance(msg, dict) or not msg:
         return {"action": "ignored", "reason": "no message in update"}
 
     from_user = msg.get("from") or {}
     tg_user_id = from_user.get("id")
     chat_id = (msg.get("chat") or {}).get("id") or tg_user_id
     text = (msg.get("text") or "").strip()
+
+    # No identifiable sender (channel post, anonymous admin, service message)
+    # — nothing we can attribute a capture to. Ignore quietly.
+    if tg_user_id is None:
+        return {"action": "ignored", "reason": "no sender id"}
 
     # /start <token> — bind (and optionally bind to an event)
     if text.startswith("/start"):

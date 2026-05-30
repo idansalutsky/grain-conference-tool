@@ -126,30 +126,91 @@ def _build_graph() -> StateGraph:
     return g
 
 
-# A single shared checkpointer connection to the app DB file. SqliteSaver needs
-# check_same_thread=False because FastAPI may resume on a different thread than
-# the one that started the run. We guard our own writes with a lock at the
-# helper level; LangGraph serialises its checkpoint writes per-thread_id.
-_saver_conn: Optional[sqlite3.Connection] = None
-_compiled = None
+# ---------------------------------------------------------------------------
+# Checkpointer concurrency.
+#
+# A SINGLE shared sqlite3.Connection is NOT safe to drive from multiple threads
+# at once: two concurrent run_brain calls would interleave statements on the same
+# connection and can raise "Recursive use of cursors not allowed" / corrupt the
+# checkpoint. Previously one `_saver_conn` (check_same_thread=False) was shared
+# across all runs.
+#
+# Fix: give each brain invocation its OWN short-lived SqliteSaver connection
+# (with WAL + busy_timeout so concurrent writers don't lock-fail), while keeping
+# the GRAPH compiled ONCE. SqliteSaver is just a thin checkpointer bound to a
+# connection; we recompile cheaply per-call against a fresh saver, but reuse the
+# already-built StateGraph (the expensive part is the node wiring, which we cache).
+# ---------------------------------------------------------------------------
+_graph = None          # the built (uncompiled) StateGraph — built once
+_setup_done = False    # checkpoint tables created once
 _lock = threading.Lock()
 
 
-def _get_saver() -> SqliteSaver:
-    global _saver_conn
-    if _saver_conn is None:
-        _saver_conn = sqlite3.connect(str(config.DB_PATH), check_same_thread=False)
-    return SqliteSaver(_saver_conn)
+def _new_saver_conn() -> sqlite3.Connection:
+    """A fresh sqlite connection for ONE brain run's checkpointer.
+
+    check_same_thread=False so a resume on a different FastAPI worker thread can
+    reuse the saver if needed; WAL + busy_timeout match db.get_conn() so brain
+    checkpoint writes coexist with app writes under concurrency without
+    "database is locked". WAL is on-disk only — guarded for memory/test DBs.
+    """
+    conn = sqlite3.connect(str(config.DB_PATH), check_same_thread=False, timeout=30.0)
+    try:
+        conn.execute("PRAGMA busy_timeout = 30000")
+        p = str(config.DB_PATH)
+        is_file = bool(p) and p != ":memory:" and not (
+            p.startswith("file:") and ("mode=memory" in p or ":memory:" in p)
+        )
+        if is_file:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+    except sqlite3.OperationalError:
+        pass
+    return conn
+
+
+def _ensure_setup() -> None:
+    """Create the LangGraph checkpoint tables once (idempotent, race-safe)."""
+    global _setup_done
+    if _setup_done:
+        return
+    with _lock:
+        if _setup_done:
+            return
+        conn = _new_saver_conn()
+        try:
+            SqliteSaver(conn).setup()
+        finally:
+            conn.close()
+        _setup_done = True
+
+
+def _get_graph():
+    """Return the (uncompiled) StateGraph, building it exactly once."""
+    global _graph
+    if _graph is None:
+        with _lock:
+            if _graph is None:
+                _graph = _build_graph()
+    return _graph
 
 
 def build_brain():
-    """Compile (once) and return the brain graph with a SqliteSaver checkpointer."""
-    global _compiled
-    if _compiled is None:
-        saver = _get_saver()
-        saver.setup()  # idempotent — creates checkpoint tables if absent
-        _compiled = _build_graph().compile(checkpointer=saver)
-    return _compiled
+    """Return a compiled brain graph bound to a FRESH per-call checkpointer conn.
+
+    The graph topology is built once (`_get_graph`) and the checkpoint tables are
+    created once (`_ensure_setup`); only the lightweight compile-with-checkpointer
+    step runs per call, against a dedicated connection so concurrent runs never
+    share one sqlite connection.
+
+    Returns (compiled_app, saver_conn). The caller MUST close `saver_conn` when
+    the run/resume finishes.
+    """
+    _ensure_setup()
+    conn = _new_saver_conn()
+    saver = SqliteSaver(conn)
+    compiled = _get_graph().compile(checkpointer=saver)
+    return compiled, conn
 
 
 # ---------------------------------------------------------------------------
@@ -189,15 +250,19 @@ def run_brain(input_text: str, thread_id: str) -> dict:
     approval, `status` == "awaiting_approval" and `proposals` is populated;
     call `resume_brain(thread_id, approvals)` to finish.
     """
-    app = build_brain()
+    app, saver_conn = build_brain()
     cfg = {"configurable": {"thread_id": thread_id}}
     init: BrainState = {
         "input_text": input_text,
         "candidates": [], "gate_decisions": [], "writes": [],
         "proposals": [], "approvals": [], "trace": [], "result": {},
     }
-    with _lock:
+    try:
+        # No global lock: each run owns its own checkpointer connection, so two
+        # concurrent run_brain calls proceed in parallel without sharing a conn.
         state = app.invoke(init, cfg)
+    finally:
+        saver_conn.close()
     out = _normalize_result(state)
     out["thread_id"] = thread_id
     return out
@@ -209,10 +274,12 @@ def resume_brain(thread_id: str, approvals: list[dict]) -> dict:
     `approvals` = [{"id": <proposal_id>, "approved": bool}, ...]. The graph
     re-enters at `approval_gate`, then runs gate → memory_writer → END.
     """
-    app = build_brain()
+    app, saver_conn = build_brain()
     cfg = {"configurable": {"thread_id": thread_id}}
-    with _lock:
+    try:
         state = app.invoke(Command(resume={"approvals": approvals}), cfg)
+    finally:
+        saver_conn.close()
     out = _normalize_result(state)
     out["thread_id"] = thread_id
     return out
