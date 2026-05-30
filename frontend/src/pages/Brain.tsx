@@ -1110,17 +1110,60 @@ function RunSection({
         <div className="card p-4 sm:p-5 mb-4 rise">
           <div className="rule-label mb-3">Result — what entered the brain</div>
 
-          {complete.writes && complete.writes.length > 0 ? (
-            <div className="space-y-2 mb-3">
-              {complete.writes.map((w, i) => (
-                <WriteRow key={`${w.item_key}-${i}`} write={w} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-ink-500 mb-3">
-              No new writes — the brain answered from existing memory.
-            </p>
-          )}
+          {(() => {
+            const decisions = (complete.gate_decisions || []) as Array<{
+              decision?: string; reason?: string;
+            }>;
+            const refused = decisions.find((d) => d?.decision === "reject");
+            if (complete.writes && complete.writes.length > 0) {
+              return (
+                <div className="space-y-2 mb-3">
+                  {complete.writes.map((w, i) => (
+                    <WriteRow key={`${w.item_key}-${i}`} write={w} />
+                  ))}
+                </div>
+              );
+            }
+            if (refused) {
+              // The money moment: the gate refused this outright. Say it loudly.
+              return (
+                <div
+                  className="rounded-md p-3 mb-3"
+                  style={{
+                    backgroundColor: "oklch(0.96 0.03 62)",
+                    boxShadow: "inset 0 0 0 1px oklch(0.86 0.06 62)",
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden>⛔</span>
+                    <span
+                      className="stamp"
+                      style={{
+                        color: "oklch(0.45 0.11 62)",
+                        backgroundColor: "oklch(0.97 0.03 62)",
+                        boxShadow: "inset 0 0 0 1px oklch(0.86 0.06 62)",
+                      }}
+                    >
+                      Refused
+                    </span>
+                    <span className="text-sm font-medium text-ink-800">
+                      Kept out of memory
+                    </span>
+                  </div>
+                  {refused.reason && (
+                    <p className="text-sm text-ink-700 mt-1.5">{refused.reason}</p>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <p className="text-sm text-ink-500 mb-3">
+                {complete.kind === "query"
+                  ? "No new writes — the brain answered from existing memory."
+                  : "Nothing new to record from this one."}
+              </p>
+            );
+          })()}
 
           {complete.result && Object.keys(complete.result).length > 0 && (
             <details className="text-sm">
