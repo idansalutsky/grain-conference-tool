@@ -3,13 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useToast, toastErrorMessage } from "@/components/Toast";
-import { SubTabs } from "@/components/SubTabs";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
-const ADMIN_TABS = [
-  { to: "/team", label: "Team" },
-  { to: "/settings", label: "Settings" },
-];
 
 interface Rep {
   id: string; full_name: string; email: string | null; region: string | null;
@@ -90,8 +85,7 @@ export function TeamPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl mb-1">Admin</h1>
-        <SubTabs items={ADMIN_TABS} />
+        <h1 className="text-2xl mb-1">Team</h1>
         <h2 className="text-lg">The team</h2>
         <p className="text-sm text-ink-500 mt-1 max-w-[65ch]">
           Who's on the floor, and who covers which events. Add a rep, then assign

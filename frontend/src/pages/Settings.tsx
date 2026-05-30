@@ -2,14 +2,9 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { SubTabs } from "@/components/SubTabs";
 import { useToast, toastErrorMessage } from "@/components/Toast";
 
 const DEFAULT_REP_ID = "rep-na-01";
-const ADMIN_TABS = [
-  { to: "/team", label: "Team" },
-  { to: "/settings", label: "Settings" },
-];
 
 export function SettingsPage() {
   useDocumentTitle("Settings");
@@ -51,8 +46,7 @@ export function SettingsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Admin</h1>
-      <SubTabs items={ADMIN_TABS} />
+      <h1 className="text-2xl mb-1">Settings</h1>
       <p className="text-sm text-ink-500 mb-6 max-w-[65ch]">
         Tune how matching and follow-up nudges behave, connect Telegram, and
         review the ICP the whole tool scores against. Scoring weights live on the

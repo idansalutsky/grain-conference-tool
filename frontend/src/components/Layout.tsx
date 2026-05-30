@@ -1,15 +1,17 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-// Six grouped destinations along the rep's day. `match` = path prefixes that
-// keep the tab lit (e.g. Events stays active on the Find-new sub-page).
+// Destinations along the rep's day. `match` = path prefixes that keep the tab
+// lit (e.g. Events stays active on the Find-new sub-page). Config is NOT a daily
+// destination — Settings lives behind a masthead gear, not a top tab, and there
+// is no "Admin" (single-tenant demo, everyone sees everything).
 const TABS = [
   { to: "/today", label: "Dashboard", match: ["/today"] },
   { to: "/conferences", label: "Events", match: ["/conferences", "/discovery"] },
   { to: "/planning", label: "Calendar", match: ["/planning"] },
   { to: "/capture", label: "Capture", match: ["/capture"] },
   { to: "/contacts", label: "People", match: ["/contacts", "/nudges", "/companies"] },
-  { to: "/team", label: "Admin", match: ["/team", "/settings"] },
+  { to: "/team", label: "Team", match: ["/team"] },
   { to: "/brain", label: "Intelligence", match: ["/brain"] },
 ];
 
@@ -61,6 +63,20 @@ export function Layout({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
+          {/* Settings — a utility, not a destination: a quiet gear at the masthead edge. */}
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            title="Settings"
+            className={
+              "hidden md:grid place-items-center w-9 h-9 rounded-md ml-auto text-base transition-colors " +
+              (isGroupActive(["/settings"], loc.pathname)
+                ? "bg-ink-900 text-white"
+                : "text-ink-500 hover:text-ink-900 hover:bg-ink-100")
+            }
+          >
+            <span aria-hidden>⚙</span>
+          </Link>
           {/* Mobile toggle */}
           <button
             onClick={() => setOpen((v) => !v)}
@@ -90,6 +106,17 @@ export function Layout({ children }: { children: ReactNode }) {
                 </Link>
               );
             })}
+            <Link
+              to="/settings"
+              onClick={() => setOpen(false)}
+              className={
+                "px-3 py-2.5 rounded-md text-sm font-semibold " +
+                (isGroupActive(["/settings"], loc.pathname)
+                  ? "bg-ink-900 text-white" : "text-ink-700 hover:bg-ink-100")
+              }
+            >
+              ⚙ Settings
+            </Link>
           </nav>
         )}
       </header>
