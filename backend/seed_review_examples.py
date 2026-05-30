@@ -47,10 +47,11 @@ def _ensure_contact(name: str, company: str, title: str, email: str | None = Non
         conn.close()
 
 
-def _create_encounter(name: str, company: str, title: str,
+def _create_encounter(enc_id: str, name: str, company: str, title: str,
                       what_discussed: str, rep_id: str = "rep-na-01") -> str:
-    """Create a fresh encounter that the resolver will evaluate."""
-    enc_id = "enc_demo_" + uuid.uuid4().hex[:10]
+    """Create the example encounter the resolver will evaluate. Uses a STABLE
+    enc_id + INSERT OR IGNORE so re-running (e.g. every container restart) does
+    NOT pile up duplicate review-queue items."""
     structured = {
         "name": name, "company": company, "title": title,
         "vertical": "travel", "sentiment": 4,
@@ -61,7 +62,7 @@ def _create_encounter(name: str, company: str, title: str,
     conn = db.get_conn()
     try:
         conn.execute(
-            "INSERT INTO encounters (id, contact_id, conference_id, rep_id, "
+            "INSERT OR IGNORE INTO encounters (id, contact_id, conference_id, rep_id, "
             "captured_at, capture_mode, raw_input, structured_json, "
             "soft_signals_json, sentiment, meeting_requested) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -93,8 +94,27 @@ def _force_review_log(enc_id: str, candidate_contact_id: str,
     )
 
 
+_ENC1_ID = "enc_demo_review_sarah_chen"
+_ENC2_ID = "enc_demo_review_patrick_janet"
+
+
 def main() -> int:
     db.init_db()
+
+    # Idempotent: if the example encounters already exist (e.g. a prior boot),
+    # do nothing — otherwise every container restart would stack more review
+    # items into the queue.
+    conn = db.get_conn()
+    try:
+        already = conn.execute(
+            "SELECT COUNT(*) FROM encounters WHERE id IN (?, ?)",
+            (_ENC1_ID, _ENC2_ID),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    if already:
+        print("Review-queue examples already seeded — skipping.")
+        return 0
 
     # Case 1 — name partial + same canonical company. Classic "two real
     # people at the same company" trap. We want the resolver to surface this.
@@ -102,6 +122,7 @@ def main() -> int:
         "Sarah Cohen", "Booking Holdings", "CFO", "sarah.cohen@booking.com",
     )
     enc1 = _create_encounter(
+        _ENC1_ID,
         "Sarah Chen", "Booking.com", "Head of Treasury",
         "Mentioned working on a multi-currency hedging pilot.",
     )
@@ -121,6 +142,7 @@ def main() -> int:
         "patrick.jany@maersk.com",
     )
     enc2 = _create_encounter(
+        _ENC2_ID,
         "Patrick Janet", "Maersk", "VP Finance",
         "Talked about cross-border container shipping FX exposure.",
     )

@@ -58,6 +58,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl --fail --silent http://127.0.0.1:${PORT}/healthz > /dev/null || exit 1
 
 # Seed conferences/people (idempotent) + cross-conference demo contacts (only
-# when there are no contacts yet), then start the API on Render's $PORT (default
-# 8000). uvicorn runs regardless of seed outcome.
-CMD ["sh", "-c", "python -m backend.seed_db || true; python -m backend.seed_demo || true; uvicorn grain.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# when there are no contacts yet) + 2 ambiguous-match examples so the Review
+# Queue has something to show on a fresh deploy, then start the API on Render's
+# $PORT (default 8000). uvicorn runs regardless of seed outcome.
+CMD ["sh", "-c", "python -m backend.seed_db || true; python -m backend.seed_demo || true; python -m backend.seed_review_examples || true; uvicorn grain.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
