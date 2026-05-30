@@ -417,6 +417,11 @@ def _format_wrap(digest: dict, nudges: list[dict],
             miss_lines.append(f"• {nm} @ {co}")
         text += "\n" + "\n".join(miss_lines)
 
+    # Hard safety cap — Telegram rejects messages over 4096 chars. The draft
+    # budget above trims drafts, but the nudge + missing sections are appended
+    # after, so guarantee the whole message fits regardless of section sizes.
+    if len(text) > 4000:
+        text = text[:3960].rstrip() + "\n\n…(full details in the dashboard)"
     return text
 
 

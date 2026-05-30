@@ -323,8 +323,11 @@ def mentioned_events_signal(limit: int = 12) -> list[dict]:
             s = json.loads(r["structured_json"] or "{}")
         except (json.JSONDecodeError, TypeError):
             continue
-        for ev in (s.get("mentioned_events") or []):
-            name = (ev or "").strip()
+        evs = s.get("mentioned_events") or []
+        if not isinstance(evs, list):  # defensive: never iterate a bare string
+            evs = [evs] if isinstance(evs, str) else []
+        for ev in evs:
+            name = (ev or "").strip() if isinstance(ev, str) else ""
             if not name:
                 continue
             norm = _norm_conf_name(name)

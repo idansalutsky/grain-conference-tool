@@ -755,6 +755,49 @@ function RollupsSection() {
 // SECTION 2 — Run the brain
 // ===========================================================================
 
+function ActivitySection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["brain-activity"],
+    queryFn: () => api.get<{ items: any[] }>("/api/brain/activity?limit=25"),
+  });
+  const items = data?.items || [];
+  return (
+    <section className="border-t border-ink-200 pt-6">
+      <h2 className="text-lg mb-1">What the system's been doing</h2>
+      <p className="text-sm text-ink-500 max-w-[68ch] mb-3">
+        Every decision the capture, resolver, discovery and scoring agents make is
+        logged — here's the recent stream, in plain language. Your window into the
+        agents at work.
+      </p>
+      {isLoading && <div className="text-sm text-ink-500">Loading…</div>}
+      {!isLoading && items.length === 0 && (
+        <div className="card p-6 text-sm text-ink-500 text-center">
+          No activity yet — capture a lead or discover an event to see the agents work.
+        </div>
+      )}
+      {items.length > 0 && (
+        <ul className="card divide-y divide-ink-100 px-3">
+          {items.map((it: any, i: number) => (
+            <li key={i} className="flex items-start gap-3 py-2">
+              <span className="text-base leading-6 shrink-0">{it.icon}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm">
+                  <span className="font-medium">{it.label}</span>
+                  {it.detail && <span className="text-ink-600"> — {it.detail}</span>}
+                </div>
+                <div className="text-xs text-ink-400">
+                  {relTime(it.at)}{it.by ? ` · ${it.by}` : ""}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+
 function Stepper({ trace }: { trace: string[] }) {
   if (!trace.length) return null;
   return (
@@ -1325,6 +1368,9 @@ export function BrainPage() {
 
       {/* VALUE-FIRST: the live loop + the human gate that refuses bad input. */}
       <RunSection lastTrace={lastTrace} onTrace={setLastTrace} />
+
+      {/* The agents' work, made visible — humanised from the audit log. */}
+      <ActivitySection />
 
       {/* Under-the-hood — the memory tiers, rollups, and graph. Collapsed by
           default so a salesperson sees value first; a reviewer can expand. */}

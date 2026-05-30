@@ -26,6 +26,84 @@ router = APIRouter(prefix="/api/brain", tags=["brain"])
 
 
 # ---------------------------------------------------------------------------
+# Activity feed — make the agents' work VISIBLE. Every decision the system makes
+# is already logged to the `feedback` audit table; this humanises the recent
+# ones into a plain-language stream so a sales lead can review what the
+# capture / resolver / discovery / scoring agents have been doing.
+# ---------------------------------------------------------------------------
+import json as _json  # noqa: E402
+
+_ACTIVITY_MAP = {
+    "entity_resolution":              ("🔗", "Cross-conference match"),
+    "conference_score_adjust":        ("⚖️", "Event score adjusted"),
+    "conference_discovery_proposal":  ("🔎", "Event discovered"),
+    "conference_discovery_approved":  ("📅", "Event added to the plan"),
+    "conference_created":             ("📅", "Event added to the plan"),
+    "conference_discovery_rejected":  ("🚫", "Discovered event rejected"),
+    "nudge_accept":                   ("✅", "Follow-up nudge accepted"),
+    "nudge_dismiss":                  ("🔕", "Nudge dismissed"),
+    "weights_calibrated":             ("🎯", "Scoring weights re-tuned"),
+    "arc_override":                   ("✎", "Relationship reclassified"),
+    "people_score_override":          ("✎", "Target re-scored"),
+    "persona_override":               ("✎", "Persona reclassified"),
+    "rep_match_confirmed":            ("🔗", "Match confirmed"),
+    "rep_match_rejected":             ("↔️", "Kept as separate people"),
+}
+
+
+def _activity_detail(kind: str, after: dict, reason: str | None) -> str:
+    """Best-effort human detail from the logged payload."""
+    if not isinstance(after, dict):
+        after = {}
+    name = (after.get("name") or after.get("primary_name")
+            or after.get("contact_name") or after.get("conference_name"))
+    if kind == "entity_resolution":
+        dec = after.get("decision") or ""
+        who = name or "a contact"
+        if dec == "review_needed":
+            return f"Flagged {who} for human review (unsure it's the same person)"
+        if dec in ("auto_merged", "auto"):
+            return f"Linked {who} across events"
+        return f"Resolved {who}"
+    if kind in ("conference_created", "conference_discovery_approved",
+                "conference_discovery_proposal", "conference_discovery_rejected"):
+        return name or after.get("source") or "an event"
+    return name or (reason or "")
+
+
+@router.get("/activity")
+def activity(limit: int = 30) -> dict:
+    """Recent agent activity, humanised from the audit log (most recent first)."""
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT decision_kind, target_kind, target_id, after_value, reason, "
+            "decided_by, decided_at FROM feedback "
+            "ORDER BY decided_at DESC, id DESC LIMIT ?",
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    finally:
+        conn.close()
+    items = []
+    for r in rows:
+        kind = r["decision_kind"]
+        icon, label = _ACTIVITY_MAP.get(kind, ("•", kind.replace("_", " ").title()))
+        try:
+            after = _json.loads(r["after_value"] or "{}")
+        except (ValueError, TypeError):
+            after = {}
+        items.append({
+            "at": r["decided_at"],
+            "icon": icon,
+            "label": label,
+            "detail": _activity_detail(kind, after, r["reason"]),
+            "by": r["decided_by"],
+            "kind": kind,
+        })
+    return {"items": items}
+
+
+# ---------------------------------------------------------------------------
 # L1 — middle-management rollups (hierarchical memory tier).
 # ONE judged summary per ENTITY (event / account / segment). Bounded by the
 # number of entities, never by a magic 50. `limit` here is PAGINATION of the

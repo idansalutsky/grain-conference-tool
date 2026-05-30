@@ -217,6 +217,15 @@ def _normalize_lead(structured: dict) -> dict:
         s = 3
     out["sentiment"] = max(1, min(5, s))
     out["meeting_requested"] = bool(out.get("meeting_requested"))
+    # mentioned_events must be a list of non-empty strings — the model sometimes
+    # returns a bare string or null, which would break downstream aggregation.
+    me = out.get("mentioned_events")
+    if isinstance(me, str):
+        me = [me]
+    out["mentioned_events"] = (
+        [e.strip() for e in me if isinstance(e, str) and e.strip()]
+        if isinstance(me, list) else []
+    )
     return out
 
 
