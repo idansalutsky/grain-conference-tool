@@ -93,7 +93,8 @@ def coverage() -> dict:
 # ---------------------------------------------------------------------------
 # Trip clustering — geographic + temporal proximity
 # ---------------------------------------------------------------------------
-TEMPORAL_WINDOW_DAYS = 21    # events within 3 weeks can be a single trip
+TEMPORAL_WINDOW_DAYS = 21    # the WHOLE swing spans at most ~3 weeks
+MAX_SWING_EVENTS = 4         # a realistic single trip is a handful of events
 GEO_CLUSTERS = {
     # Compact, defensible regional groupings — not perfect, but explainable.
     "EU_CENTRAL": {"Germany", "Netherlands", "Belgium", "Luxembourg", "France", "Switzerland"},
@@ -149,8 +150,12 @@ def trip_clusters(min_size: int = 2) -> list[dict]:
         while i < len(items):
             cluster = [items[i]]
             j = i + 1
-            while j < len(items):
-                if (items[j]["_dt"] - cluster[-1]["_dt"]).days <= TEMPORAL_WINDOW_DAYS:
+            # A real "swing" is a few events you'd do on ONE trip: bound the
+            # whole window from the FIRST event (not chained off the last, which
+            # daisy-chains a dense region into a months-long blob), and cap the
+            # size — nobody works 20 conferences in one trip.
+            while j < len(items) and len(cluster) < MAX_SWING_EVENTS:
+                if (items[j]["_dt"] - cluster[0]["_dt"]).days <= TEMPORAL_WINDOW_DAYS:
                     cluster.append(items[j])
                     j += 1
                 else:

@@ -36,10 +36,12 @@ export function SettingsPage() {
   });
 
   const [tgToken, setTgToken] = useState<any | null>(null);
+  const [tgCopied, setTgCopied] = useState(false);
   const issueTgToken = useMutation({
     mutationFn: () =>
       api.post<any>("/api/telegram/issue-token", { rep_id: DEFAULT_REP_ID }),
-    onSuccess: (d) => setTgToken(d),
+    onSuccess: (d) => { setTgToken(d); setTgCopied(false); },
+    onError: (e) => toast("error", toastErrorMessage(e)),
   });
 
   if (isLoading) return <div className="text-sm text-ink-500">Loading…</div>;
@@ -69,16 +71,29 @@ export function SettingsPage() {
         </button>
         {tgToken && (
           <div className="mt-3 text-xs">
-            <a
-              href={tgToken.deep_link}
-              target="_blank"
-              rel="noreferrer"
-              className="text-brand font-mono break-all hover:underline"
-            >
-              {tgToken.deep_link}
-            </a>
-            <div className="text-ink-500 mt-1">
-              Bot: <span className="font-mono">@{tgToken.bot_username || "GrainSales_bot"}</span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <a
+                href={tgToken.deep_link}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand font-mono break-all hover:underline flex-1"
+              >
+                {tgToken.deep_link}
+              </a>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(tgToken.deep_link)
+                    .then(() => { setTgCopied(true); toast("success", "Link copied"); })
+                    .catch(() => toast("error", "Couldn't copy — long-press to copy"));
+                }}
+                className="btn-secondary text-xs shrink-0"
+              >
+                {tgCopied ? "Copied ✓" : "Copy link"}
+              </button>
+            </div>
+            <div className="text-ink-500 mt-2">
+              One-time link, binds bot <span className="font-mono">@{tgToken.bot_username || "GrainSales_bot"}</span> to your
+              rep profile. You can also bind per-event from any event's page.
             </div>
           </div>
         )}

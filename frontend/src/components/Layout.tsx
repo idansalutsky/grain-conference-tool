@@ -9,7 +9,6 @@ const TABS = [
   { to: "/today", label: "Dashboard", match: ["/today"] },
   { to: "/conferences", label: "Events", match: ["/conferences", "/discovery"] },
   { to: "/planning", label: "Calendar", match: ["/planning"] },
-  { to: "/capture", label: "Capture", match: ["/capture"] },
   { to: "/contacts", label: "People", match: ["/contacts", "/nudges", "/companies"] },
   { to: "/team", label: "Team", match: ["/team"] },
   { to: "/brain", label: "Intelligence", match: ["/brain"] },

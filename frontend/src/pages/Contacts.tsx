@@ -81,7 +81,7 @@ export function ContactsPage() {
         ))}
         {data && data.items.length === 0 && (
           <div className="p-8 text-center text-sm text-ink-500">
-            No contacts yet. Capture a few leads from the Capture tab.
+            No contacts yet. Leads flow in as reps capture encounters from the field via Telegram.
           </div>
         )}
       </div>

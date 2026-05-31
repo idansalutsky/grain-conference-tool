@@ -150,6 +150,60 @@ def _active_nudges(limit: int = 3) -> list[dict]:
         conn.close()
 
 
+def _warming_count() -> int:
+    conn = db.get_conn()
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM contacts WHERE nudge_active = 1"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _priority_events(n: int = 6) -> list[dict]:
+    """The leader's planning view: the highest-value events still ahead, each
+    tagged with how many reps cover it. Uncovered tier-A events are the gap that
+    matters — they self-highlight in this one ranked list rather than needing a
+    separate 'gaps' panel."""
+    conn = db.get_conn()
+    try:
+        today = datetime.now(timezone.utc).date()
+        rows = conn.execute(
+            "SELECT id, name, start_date, end_date, city, country, "
+            "score, tier, vertical, estimated_attendance "
+            "FROM conferences WHERE start_date >= ? AND tier IN ('A','B') "
+            "ORDER BY score DESC, start_date ASC LIMIT ?",
+            (today.isoformat(), n),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["reps_assigned"] = conn.execute(
+                "SELECT COUNT(*) FROM coverage WHERE conference_id = ?", (d["id"],)
+            ).fetchone()[0]
+            sd = _parse_date(d["start_date"])
+            d["days_until"] = (sd.date() - today).days if sd else None
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def _uncovered_high_value_count() -> int:
+    """Tier-A events ahead with zero reps assigned — the exposure number."""
+    conn = db.get_conn()
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+        return conn.execute(
+            "SELECT COUNT(*) FROM conferences c WHERE c.tier = 'A' "
+            "AND c.start_date >= ? "
+            "AND NOT EXISTS (SELECT 1 FROM coverage v WHERE v.conference_id = c.id)",
+            (today,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def _recent_captures(rep_id: str, limit: int = 5) -> list[dict]:
     conn = db.get_conn()
     try:
@@ -220,7 +274,10 @@ def for_rep(rep_id: str) -> dict:
         "rep_id": rep_id,
         "event": event,
         "targets": _top_targets(event["id"], 3) if event.get("id") else [],
-        "nudges": _active_nudges(3),
+        "nudges": _active_nudges(4),
+        "warming_count": _warming_count(),
+        "priority_events": _priority_events(6),
+        "uncovered_high_value_count": _uncovered_high_value_count(),
         "recent_captures": _recent_captures(rep_id, 5),
         "pending_discovery_count": _pending_discovery_count(),
         "review_needed_count": _review_needed_count(),

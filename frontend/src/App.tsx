@@ -4,7 +4,6 @@ import { TodayPage } from "./pages/Today";
 import { ConferencesPage } from "./pages/Conferences";
 import { ConferenceDetailPage } from "./pages/ConferenceDetail";
 import { PlanningPage } from "./pages/Planning";
-import { CapturePage } from "./pages/Capture";
 import { ContactsPage } from "./pages/Contacts";
 import { ContactDetailPage } from "./pages/ContactDetail";
 import { NudgesPage } from "./pages/Nudges";
@@ -27,13 +26,14 @@ export default function App() {
         <Route path="/companies" element={<CompaniesPage />} />
         <Route path="/companies/:id" element={<CompanyDetailPage />} />
         <Route path="/planning" element={<PlanningPage />} />
-        <Route path="/capture" element={<CapturePage />} />
         <Route path="/contacts" element={<ContactsPage />} />
         <Route path="/contacts/:id" element={<ContactDetailPage />} />
         <Route path="/nudges" element={<NudgesPage />} />
         <Route path="/discovery" element={<DiscoveryPage />} />
         <Route path="/team" element={<TeamPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        {/* Stale bookmarks (e.g. the removed /capture) land home, not on a blank. */}
+        <Route path="*" element={<Navigate to="/today" replace />} />
       </Routes>
     </Layout>
   );

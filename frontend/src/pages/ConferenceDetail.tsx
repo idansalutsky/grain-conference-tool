@@ -244,8 +244,8 @@ function AudienceMix({ raw }: { raw?: string | null }) {
 
 // Empty buying-committee state — grounded in the MEASURED audience signal we
 // already have (audience_composition_json), not a blank. Honest about why we
-// don't pre-scrape named attendees, and points at the real next steps that
-// already live on this page (Coverage) and in the app (/capture).
+// don't pre-scrape named attendees, and points at the real next step that
+// already lives on this page (Coverage → per-rep Telegram capture link).
 function EmptyCommittee({ raw }: { raw?: string | null }) {
   let comp: any = null;
   if (raw) {
@@ -282,13 +282,10 @@ function EmptyCommittee({ raw }: { raw?: string | null }) {
             e.preventDefault();
             document.getElementById("coverage")?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
-          className="btn-secondary text-xs"
+          className="btn-primary text-xs"
         >
-          ↑ Assign a rep to cover it
+          ↓ Assign a rep & get their Telegram capture link
         </a>
-        <Link to="/capture" className="btn-primary text-xs">
-          Capture attendees live →
-        </Link>
       </div>
     </div>
   );

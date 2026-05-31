@@ -1708,9 +1708,11 @@ export function BrainPage() {
       <RunSection lastTrace={lastTrace} onTrace={setLastTrace} />
 
       {/* The agents' work, made visible — humanised from the audit log. */}
-      <MarketSection />
-
       <ActivitySection />
+
+      {/* Demoted: thin, second-order market reads buyers mentioned. Real, but
+          never a headline — it lives down here as supporting depth. */}
+      <MarketSection />
 
       {/* Under-the-hood — the memory tiers, rollups, and graph. Collapsed by
           default so a salesperson sees value first; a reviewer can expand. */}
