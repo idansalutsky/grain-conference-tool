@@ -121,22 +121,36 @@ export function PlanningPage() {
         <div className="space-y-2">
           {clusters.data?.clusters?.map((cl: any, i: number) => (
             <div key={i} className="border border-ink-200 rounded p-3">
-              <div className="flex justify-between items-baseline mb-1">
+              <div className="flex justify-between items-baseline gap-3 mb-2">
                 <div className="font-semibold text-sm">
                   {cl.geo_cluster} · {cl.start_date} → {cl.end_date}
+                  <span className="text-ink-500 font-normal"> · {cl.conferences.length} events / {cl.span_days}d</span>
                 </div>
-                <div className="text-xs text-ink-500">
-                  Σ score {cl.total_score} · est. saving ${cl.estimated_savings_usd}
+                <div className="text-xs text-ink-700 text-right shrink-0">
+                  {cl.total_pass_cost_usd != null ? (
+                    <>
+                      <span className="font-semibold tabular-nums">${cl.total_pass_cost_usd.toLocaleString()}</span>
+                      <span className="text-ink-500"> in passes</span>
+                      {cl.passes_priced < cl.conferences.length && <span className="text-ink-400"> ({cl.passes_priced} priced)</span>}
+                    </>
+                  ) : (
+                    <span className="text-ink-400">pass cost n/a</span>
+                  )}
+                  <span className="text-ink-300"> · </span>
+                  <span className="text-emerald-700">save ~${cl.estimated_savings_usd.toLocaleString()} on travel</span>
                 </div>
               </div>
               <div className="text-xs space-y-0.5">
                 {cl.conferences.map((c: any) => (
-                  <div key={c.id} className="flex gap-2 text-ink-700">
-                    <span className="font-mono text-ink-500 w-20">{c.start_date}</span>
+                  <div key={c.id} className="flex items-baseline gap-2 text-ink-700">
+                    <span className="font-mono text-ink-500 w-20 shrink-0">{c.start_date}</span>
                     <Link to={`/conferences/${c.id}`} className="hover:underline">
                       {c.name}
                     </Link>
-                    <span className="text-ink-500">— {c.city}, {c.country}</span>
+                    <span className="text-ink-500 truncate">— {c.city}, {c.country}</span>
+                    <span className="ml-auto tabular-nums text-ink-500 shrink-0">
+                      {c.cost_pass_usd ? `$${Math.round(c.cost_pass_usd).toLocaleString()}` : "—"}
+                    </span>
                   </div>
                 ))}
               </div>

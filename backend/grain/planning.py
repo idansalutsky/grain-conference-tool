@@ -31,6 +31,18 @@ def _all_active_conferences() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _conf_rep_counts() -> dict[str, int]:
+    """How many reps cover each conference (for the planning coverage signal)."""
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT conference_id, COUNT(*) FROM coverage GROUP BY conference_id"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
 def coverage() -> dict:
     """Per-month conference coverage across a rolling 12-month planning window.
 
@@ -165,6 +177,10 @@ def trip_clusters(min_size: int = 2) -> list[dict]:
                 # Estimated savings: 1 flight per trip vs n flights
                 # (rough rule of thumb: $400 transatlantic/transpacific savings each)
                 savings_usd = 400 * (len(cluster) - 1) if g.startswith(("EU_", "APAC_")) else 200 * (len(cluster) - 1)
+                # Real money on the table: the sum of pass prices for the swing,
+                # so a manager sees cost AND saving, not just an abstract number.
+                passes = [c.get("cost_pass_usd") for c in cluster if c.get("cost_pass_usd")]
+                total_pass_cost = round(sum(passes)) if passes else None
                 swings.append({
                     "geo_cluster": g,
                     "start_date": cluster[0]["start_date"],
@@ -173,10 +189,13 @@ def trip_clusters(min_size: int = 2) -> list[dict]:
                     "conferences": [
                         {"id": c["id"], "name": c["name"], "city": c["city"],
                          "country": c["country"], "start_date": c["start_date"],
-                         "score": c["score"], "tier": c["tier"]}
+                         "score": c["score"], "tier": c["tier"],
+                         "cost_pass_usd": c.get("cost_pass_usd")}
                         for c in cluster
                     ],
                     "total_score": round(total_score, 1),
+                    "total_pass_cost_usd": total_pass_cost,
+                    "passes_priced": len(passes),
                     "estimated_savings_usd": savings_usd,
                 })
             i = j if j > i + 1 else i + 1

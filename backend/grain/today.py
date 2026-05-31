@@ -160,17 +160,40 @@ def _warming_count() -> int:
         conn.close()
 
 
-def _priority_events(n: int = 6) -> list[dict]:
-    """The leader's planning view: the highest-value events still ahead, each
-    tagged with how many reps cover it. Uncovered tier-A events are the gap that
-    matters — they self-highlight in this one ranked list rather than needing a
-    separate 'gaps' panel."""
+def _buyer_density(raw: Optional[str]) -> Optional[int]:
+    """Measured finance/treasury % of the audience — the buyer-density signal."""
+    if not raw:
+        return None
+    try:
+        comp = json.loads(raw)
+        v = comp.get("cfo_treasury_finance_pct")
+        return int(v) if v is not None else None
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def _covering_reps(conn, conf_id: str) -> list[str]:
+    rows = conn.execute(
+        "SELECT r.full_name FROM coverage c JOIN reps r ON r.id = c.rep_id "
+        "WHERE c.conference_id = ? ORDER BY r.full_name",
+        (conf_id,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def _priority_events(n: int = 8) -> list[dict]:
+    """The manager's planning view: the highest-value events still ahead, each
+    tagged with who's covering it, what it costs, and how dense the buyers are.
+    Uncovered tier-A events are the gap that matters — they self-highlight in
+    this one ranked list rather than needing a separate 'gaps' panel. The extra
+    fields back an expandable row so a manager can drill without leaving."""
     conn = db.get_conn()
     try:
         today = datetime.now(timezone.utc).date()
         rows = conn.execute(
-            "SELECT id, name, start_date, end_date, city, country, "
-            "score, tier, vertical, estimated_attendance "
+            "SELECT id, name, start_date, end_date, city, country, region, "
+            "score, tier, vertical, estimated_attendance, cost_pass_usd, "
+            "audience_composition_json, agenda_summary "
             "FROM conferences WHERE start_date >= ? AND tier IN ('A','B') "
             "ORDER BY score DESC, start_date ASC LIMIT ?",
             (today.isoformat(), n),
@@ -178,9 +201,9 @@ def _priority_events(n: int = 6) -> list[dict]:
         out = []
         for r in rows:
             d = dict(r)
-            d["reps_assigned"] = conn.execute(
-                "SELECT COUNT(*) FROM coverage WHERE conference_id = ?", (d["id"],)
-            ).fetchone()[0]
+            d["buyer_density_pct"] = _buyer_density(d.pop("audience_composition_json"))
+            d["covering_reps"] = _covering_reps(conn, d["id"])
+            d["reps_assigned"] = len(d["covering_reps"])
             sd = _parse_date(d["start_date"])
             d["days_until"] = (sd.date() - today).days if sd else None
             out.append(d)
@@ -189,17 +212,76 @@ def _priority_events(n: int = 6) -> list[dict]:
         conn.close()
 
 
-def _uncovered_high_value_count() -> int:
-    """Tier-A events ahead with zero reps assigned — the exposure number."""
+def _floor_summary() -> dict:
+    """The state of the floor — the numbers a manager wants the second they open
+    the tool: how much high-value ground is ahead, how much of it we actually
+    have someone on, and how the team is deployed."""
     conn = db.get_conn()
     try:
         today = datetime.now(timezone.utc).date().isoformat()
-        return conn.execute(
-            "SELECT COUNT(*) FROM conferences c WHERE c.tier = 'A' "
+        ab = conn.execute(
+            "SELECT id, tier FROM conferences "
+            "WHERE start_date >= ? AND tier IN ('A','B')", (today,)
+        ).fetchall()
+        covered_ids = {
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT conference_id FROM coverage").fetchall()
+        }
+        events_ahead = len(ab)
+        covered = sum(1 for r in ab if r[0] in covered_ids)
+        uncovered_tier_a = sum(
+            1 for r in ab if r[1] == "A" and r[0] not in covered_ids)
+        reps_total = conn.execute("SELECT COUNT(*) FROM reps").fetchone()[0]
+        reps_deployed = conn.execute(
+            "SELECT COUNT(DISTINCT rep_id) FROM coverage").fetchone()[0]
+        # next imminent uncovered high-value event (the time-pressure one)
+        next_uncovered = conn.execute(
+            "SELECT name, start_date FROM conferences c WHERE c.tier = 'A' "
             "AND c.start_date >= ? "
-            "AND NOT EXISTS (SELECT 1 FROM coverage v WHERE v.conference_id = c.id)",
-            (today,),
-        ).fetchone()[0]
+            "AND NOT EXISTS (SELECT 1 FROM coverage v WHERE v.conference_id = c.id) "
+            "ORDER BY c.start_date ASC LIMIT 1", (today,)
+        ).fetchone()
+        return {
+            "events_ahead": events_ahead,
+            "covered": covered,
+            "uncovered": events_ahead - covered,
+            "uncovered_tier_a": uncovered_tier_a,
+            "reps_total": reps_total,
+            "reps_deployed": reps_deployed,
+            "next_uncovered_name": next_uncovered[0] if next_uncovered else None,
+            "next_uncovered_date": next_uncovered[1] if next_uncovered else None,
+        }
+    finally:
+        conn.close()
+
+
+def _under_invested_segment() -> Optional[dict]:
+    """The one intelligence read worth leading with: which vertical has the most
+    high-value ground we're not on. Combines the scoring data with the coverage
+    reality — a conclusion, not a raw list."""
+    conn = db.get_conn()
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+        covered_ids = {
+            r[0] for r in conn.execute(
+                "SELECT DISTINCT conference_id FROM coverage").fetchall()
+        }
+        rows = conn.execute(
+            "SELECT vertical, id, tier FROM conferences "
+            "WHERE start_date >= ? AND tier IN ('A','B')", (today,)
+        ).fetchall()
+        by_vert: dict[str, dict] = {}
+        for vert, cid, tier in rows:
+            v = vert or "other"
+            slot = by_vert.setdefault(v, {"vertical": v, "ahead": 0, "uncovered": 0})
+            slot["ahead"] += 1
+            if cid not in covered_ids:
+                slot["uncovered"] += 1
+        ranked = [s for s in by_vert.values() if s["uncovered"] > 0]
+        if not ranked:
+            return None
+        ranked.sort(key=lambda s: s["uncovered"], reverse=True)
+        return ranked[0]
     finally:
         conn.close()
 
@@ -276,8 +358,9 @@ def for_rep(rep_id: str) -> dict:
         "targets": _top_targets(event["id"], 3) if event.get("id") else [],
         "nudges": _active_nudges(4),
         "warming_count": _warming_count(),
-        "priority_events": _priority_events(6),
-        "uncovered_high_value_count": _uncovered_high_value_count(),
+        "priority_events": _priority_events(8),
+        "floor": _floor_summary(),
+        "under_invested_segment": _under_invested_segment(),
         "recent_captures": _recent_captures(rep_id, 5),
         "pending_discovery_count": _pending_discovery_count(),
         "review_needed_count": _review_needed_count(),

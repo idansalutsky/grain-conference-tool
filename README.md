@@ -6,9 +6,14 @@ on a single spine: a contact identity that persists across events.
 
 1. **Decide** which conferences to prioritise — transparent 7-factor ICP-fit scoring + A/B/C tiers
 2. **Plan** team coverage across the year + spot trip clusters and gaps; manage the team and assign who covers which event
-3. **Capture** leads in the field — speak or type; the AI structures the lead (in-app or via per-rep Telegram bind)
+3. **Capture** leads in the field — **via the Telegram bot only** (a rep's phone is the field device): speak, snap a badge, type, or share a contact and the agent structures the lead. The web app is the *desk* — review, fix, and act; it has no capture surface of its own.
 4. **Recognise** cross-conference relationships — warming / flat / cooling / tire-kicker
 5. **Act** — calibrated nudges, AI follow-up drafts, and a push to HubSpot that carries the intelligence
+
+> The web app is the **manager's command surface** (player-coach): the Dashboard
+> opens on the state of the floor — high-value events ahead, what's covered vs
+> exposed, the most under-invested segment, and the relationships warming enough
+> to close — combining the coverage data with the engine's read.
 
 Non-developers run it end to end: tune scoring weights (sliders), add an event,
 add a rep, and assign coverage — all no-code in the UI.
@@ -29,15 +34,16 @@ When a rep captures someone, the system:
 
 See `docs/CROSS_CONFERENCE.md` for the matching + arc + nudge design and edge cases.
 
-## Voice capture — keyless transcription, no Whisper download
+## Field capture — the Telegram agent (not the web app)
 
-The field-capture mic uses the browser's built-in **Web Speech API** to
-transcribe in-browser (free, keyless), then sends the transcript to the
-text→lead extractor (one OpenRouter call). On browsers without speech
-recognition it falls back to recording an audio blob and sending it to the
-multimodal endpoint (Gemini 2.5 Flash via OpenRouter). Either way the rep taps
-once, talks, and gets a structured lead back in a few seconds. See
-`docs/AI_STRATEGY.md`.
+Capture lives entirely in the **Telegram bot**, because the field device is a
+phone, not a laptop. A rep sends a voice memo, a badge photo, a typed line, or a
+shared contact; the agent transcribes/reads it (Gemini via OpenRouter),
+structures the lead, resolves it against the contact pool, and replies with what
+it understood — hands-free. Each rep binds the bot once (Settings → Connect
+Telegram, or a per-event link from any event page), so captures attribute
+automatically. The web app never captures; it's the desk where the manager
+reviews, fixes, and acts. See `docs/AI_STRATEGY.md`.
 
 ## Quick start (local, ~5 minutes)
 
@@ -79,15 +85,16 @@ env vars are just a convenience for headless hosting.
 | Var | Required? | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | optional* | Universal LLM gateway (Gemini extraction, Perplexity Sonar discovery). *Without it, capture/brain fall back to deterministic extraction; voice/photo/LinkedIn extraction need it. |
-| `TELEGRAM_BOT_TOKEN` | optional | Field capture via Telegram; unset → web capture only |
+| `TELEGRAM_BOT_TOKEN` | optional | Field capture via Telegram (the only capture channel); unset → no field capture, web app still runs fully |
 | `HUBSPOT_PRIVATE_APP_TOKEN` | optional | Unset → HubSpot push runs in dry-run mode |
 | `DATA_DIR` | optional | Default `./data` — SQLite + audio cache live here |
 
 ## Architecture
 
 ```
-Frontend — React + Vite + Tailwind  (6 grouped tabs:
-              Dashboard · Events(+Find new) · Calendar · Capture · People(Contacts+Follow-ups) · Admin(Team+Settings))
+Frontend — React + Vite + Tailwind  (manager command surface, 6 tabs:
+              Dashboard · Events(+Find new) · Calendar · People(Contacts+Follow-ups) · Team · Intelligence · ⚙ Settings)
+              — capture is NOT a web tab; it's the Telegram field agent
         │  HTTP / JSON  (frontend calls /api/*)
 Backend — FastAPI + SQLite (one file, no migrations)
         │  scoring · entity-resolution · arc · nudge · brief · voice ·

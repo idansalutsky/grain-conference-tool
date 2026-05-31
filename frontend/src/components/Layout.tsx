@@ -128,7 +128,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between text-xs text-ink-500">
           <span>Grain · Conference Intelligence</span>
           <span className="hidden sm:inline tracking-wide uppercase text-[0.65rem]">
-            Decide · Plan · Capture · Recognise · Act
+            Decide · Plan · Recognise · Act · capture in the field
           </span>
         </div>
       </footer>
