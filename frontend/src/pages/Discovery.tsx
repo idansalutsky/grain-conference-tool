@@ -4,12 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast, toastErrorMessage } from "@/components/Toast";
 import { SubTabs } from "@/components/SubTabs";
+import { EVENTS_TABS } from "@/components/eventsTabs";
 
 const REGIONS = ["any", "NA", "EU", "APAC", "MEA", "LATAM"];
-const EVENTS_TABS = [
-  { to: "/conferences", label: "Browse events" },
-  { to: "/discovery", label: "✨ Find new" },
-];
 
 export function DiscoveryPage() {
   useDocumentTitle("Find events");

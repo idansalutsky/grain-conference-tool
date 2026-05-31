@@ -2,6 +2,8 @@ import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { SubTabs } from "@/components/SubTabs";
+import { EVENTS_TABS } from "@/components/eventsTabs";
 
 const NOW_MONTH = new Date().toISOString().slice(0, 7);
 // Tier colours aligned with the stamp palette (A green, B blue, C neutral).
@@ -12,7 +14,7 @@ const TIER_FILL: Record<string, string> = {
 };
 
 export function PlanningPage() {
-  useDocumentTitle("Calendar");
+  useDocumentTitle("Plan the year");
   const coverage = useQuery({
     queryKey: ["coverage"],
     queryFn: () => api.get<any>("/api/planning/coverage"),
@@ -28,7 +30,8 @@ export function PlanningPage() {
 
   return (
     <div>
-      <h1 className="text-2xl mb-1">Calendar</h1>
+      <h1 className="text-2xl mb-1">Events</h1>
+      <SubTabs items={EVENTS_TABS} />
       <p className="text-sm text-ink-500 mb-6 max-w-[62ch]">
         The year ahead — how many events fall in each month (by tier), which
         high-fit events still have no one assigned, and which trips can be

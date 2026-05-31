@@ -5,12 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { TierBadge } from "@/components/Badges";
 import { SubTabs } from "@/components/SubTabs";
+import { EVENTS_TABS } from "@/components/eventsTabs";
 import { useToast, toastErrorMessage } from "@/components/Toast";
 
-const EVENTS_TABS = [
-  { to: "/conferences", label: "Browse events" },
-  { to: "/discovery", label: "✨ Find new" },
-];
 const TODAY = new Date().toISOString().slice(0, 10);
 
 interface Conference {
