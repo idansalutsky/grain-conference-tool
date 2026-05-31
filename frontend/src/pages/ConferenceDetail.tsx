@@ -90,9 +90,10 @@ export function ConferenceDetailPage() {
         )}
       </div>
 
+      {/* The event page follows the rep's journey top-to-bottom:
+          DECIDE (why this event — score + intel) · PLAN (who covers it) ·
+          PREP (committee + pre-event briefs) · AFTER (follow-ups). */}
       {id && <Coverage conferenceId={id} conferenceName={c.name} />}
-
-      {id && <PostEventFollowups conferenceId={id} conferenceName={c.name} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-1 space-y-4">
@@ -209,6 +210,9 @@ export function ConferenceDetailPage() {
           </section>
         </div>
       </div>
+
+      {/* AFTER the event — the wrap-up lives last, where it belongs in the flow. */}
+      {id && <PostEventFollowups conferenceId={id} conferenceName={c.name} />}
     </div>
   );
 }
