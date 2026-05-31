@@ -125,7 +125,9 @@ export function ConferenceDetailPage() {
         </section>
       </div>
 
-      {/* PLAN — who covers it + their field-capture links. */}
+      {/* PLAN + CAPTURE CHANNEL — assign reps and hand each their per-event
+          Telegram deep link. Capture itself happens in Telegram (their phone in
+          hand), not on this page; the agent files it back here under Results. */}
       {id && <Coverage conferenceId={id} conferenceName={c.name} />}
 
       {/* AFTER the event — the results, then the follow-up agent, last in the flow. */}

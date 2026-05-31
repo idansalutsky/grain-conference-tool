@@ -6,7 +6,7 @@ on a single spine: a contact identity that persists across events.
 
 1. **Decide** which conferences to prioritise — transparent 7-factor ICP-fit scoring + A/B/C tiers
 2. **Plan** team coverage across the year + spot trip clusters and gaps; manage the team and assign who covers which event
-3. **Capture** leads in the field — **via the Telegram bot only** (a rep's phone is the field device): speak, snap a badge, type, or share a contact and the agent structures the lead. The web app is the *desk* — review, fix, and act; it has no capture surface of its own.
+3. **Capture** leads in the field — entirely from **Telegram** (the rep's phone is the field device). Each event page hands the rep a **per-event deep link**; one tap binds the bot to that event, and from then on everything they send Telegram — a voice memo, a badge photo, a typed line, a shared contact — is structured by the agent and filed back into the platform, auto-tagged to that event. No web page to open on the floor.
 4. **Recognise** cross-conference relationships — warming / flat / cooling / tire-kicker
 5. **Act** — calibrated nudges, AI follow-up drafts, and a push to HubSpot that carries the intelligence
 
