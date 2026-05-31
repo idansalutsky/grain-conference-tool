@@ -1,7 +1,7 @@
 """Calibration tests — rep score-overrides gently auto-tune the scoring weights.
 
 Safe by construction: no movement below the signal floor, bounded per-factor
-step, clamp to [0.02, 0.40], renormalise to sum 1.0, and reversible reset. These
+step, clamp to [0.02, 0.50], renormalise to sum 1.0, and reversible reset. These
 tests run against the conftest temp DB; each seeds its own conferences + override
 feedback so they're independent and never touch the live data/grain.db.
 """
@@ -40,6 +40,11 @@ def _mk_conf(vertical: str, name: str, *, region="EU", fmt="summit",
 
 
 def _clear_overrides() -> None:
+    # Reset to a clean slate: no override feedback AND default weights. Other
+    # tests in the shared temp DB tune scoring.* settings (e.g. test_api), so the
+    # calibration tests must pin the baseline weights or their before/after deltas
+    # are measured against a polluted starting point.
+    scoring.reset_weights_to_default()
     conn = db.get_conn()
     try:
         conn.execute("DELETE FROM feedback WHERE decision_kind = 'conference_score_adjust'")

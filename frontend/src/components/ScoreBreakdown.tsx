@@ -24,14 +24,35 @@ export function ScoreBreakdown({ breakdown, compact }: Props) {
   if (!breakdown || !breakdown.factors) {
     return <div className="text-sm text-ink-500">No score breakdown yet.</div>;
   }
+  if (compact) {
+    // Tight version for the expandable rows — one line per factor, thin bar,
+    // no measures sub-line (the labels + evidence are enough at a glance).
+    return (
+      <div className="space-y-1.5">
+        {breakdown.factors.map((f) => {
+          const m = META[f.key] || { label: f.key, measures: "" };
+          return (
+            <div key={f.key} className="flex items-center gap-2 text-xs">
+              <span className="w-20 shrink-0 text-ink-700 truncate">{m.label}</span>
+              <div className="flex-1 h-1.5 bg-ink-100 rounded-full overflow-hidden">
+                <div className="h-full" style={{ width: `${Math.min(100, f.raw * 100)}%`, background: "oklch(0.55 0.11 158)" }} />
+              </div>
+              <span className="shrink-0 tabular-nums text-ink-500 w-24 text-right">
+                {Math.round(f.raw * 100)} × {Math.round(f.weight * 100)}% = <span className="text-ink-900 font-semibold">+{f.weighted.toFixed(0)}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {!compact && (
-        <div className="flex items-baseline gap-2">
-          <div className="masthead text-3xl leading-none">{breakdown.total.toFixed(0)}</div>
-          <div className="text-sm text-ink-500">/ 100 · tier {breakdown.tier}</div>
-        </div>
-      )}
+      <div className="flex items-baseline gap-2">
+        <div className="masthead text-3xl leading-none">{breakdown.total.toFixed(0)}</div>
+        <div className="text-sm text-ink-500">/ 100 · tier {breakdown.tier}</div>
+      </div>
       <div className="space-y-2.5">
         {breakdown.factors.map((f) => {
           const m = META[f.key] || { label: f.key, measures: "" };
@@ -44,8 +65,6 @@ export function ScoreBreakdown({ breakdown, compact }: Props) {
                   {" = "}<span className="text-ink-900 font-semibold">+{f.weighted.toFixed(0)}</span>
                 </span>
               </div>
-              {/* bar shows the RAW factor score (how strong the event is on this
-                  axis), not the weighted contribution — so a weak factor reads weak. */}
               <div className="w-full h-1.5 bg-ink-100 rounded-full overflow-hidden mt-1">
                 <div className="h-full" style={{ width: `${Math.min(100, f.raw * 100)}%`, background: "oklch(0.55 0.11 158)" }} />
               </div>

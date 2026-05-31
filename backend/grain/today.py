@@ -358,7 +358,7 @@ def for_rep(rep_id: str) -> dict:
         "targets": _top_targets(event["id"], 3) if event.get("id") else [],
         "nudges": _active_nudges(4),
         "warming_count": _warming_count(),
-        "priority_events": _priority_events(8),
+        "priority_events": _priority_events(15),
         "floor": _floor_summary(),
         "under_invested_segment": _under_invested_segment(),
         "recent_captures": _recent_captures(rep_id, 5),

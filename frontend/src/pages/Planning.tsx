@@ -90,17 +90,15 @@ export function PlanningPage() {
                   <span className="text-ink-500 font-normal"> · {cl.conferences.length} events / {cl.span_days}d</span>
                 </div>
                 <div className="text-xs text-ink-700 text-right shrink-0">
-                  {cl.total_pass_cost_usd != null ? (
-                    <>
-                      <span className="font-semibold tabular-nums">${cl.total_pass_cost_usd.toLocaleString()}</span>
-                      <span className="text-ink-500"> in passes</span>
-                      {cl.passes_priced < cl.conferences.length && <span className="text-ink-400"> ({cl.passes_priced} priced)</span>}
-                    </>
+                  {cl.total_pass_cost_usd != null && cl.passes_priced > 0 ? (
+                    cl.passes_priced === cl.conferences.length ? (
+                      <><span className="font-semibold tabular-nums">${cl.total_pass_cost_usd.toLocaleString()}</span><span className="text-ink-500"> in passes</span></>
+                    ) : (
+                      <><span className="text-ink-500">from </span><span className="font-semibold tabular-nums">${cl.total_pass_cost_usd.toLocaleString()}</span><span className="text-ink-400"> · {cl.passes_priced}/{cl.conferences.length} priced</span></>
+                    )
                   ) : (
-                    <span className="text-ink-400">pass cost n/a</span>
+                    <span className="text-ink-400">pass cost not published</span>
                   )}
-                  <span className="text-ink-300"> · </span>
-                  <span className="text-emerald-700">save ~${cl.estimated_savings_usd.toLocaleString()} on travel</span>
                 </div>
               </div>
               <div className="text-xs space-y-0.5">

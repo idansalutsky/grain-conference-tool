@@ -140,6 +140,39 @@ def get_conference(conference_id: str) -> dict:
     return _row(row)
 
 
+@router.get("/{conference_id}/outcomes")
+def conference_outcomes(conference_id: str) -> dict:
+    """What actually happened at this event: the connections made, briefs
+    prepped, meetings booked, and follow-ups drafted — the per-event results the
+    manager wants in one place."""
+    conn = db.get_conn()
+    try:
+        def one(sql, *a):
+            return conn.execute(sql, a).fetchone()[0]
+        encounters = one("SELECT COUNT(*) FROM encounters WHERE conference_id = ?", conference_id)
+        contacts = one("SELECT COUNT(DISTINCT contact_id) FROM encounters "
+                       "WHERE conference_id = ? AND contact_id IS NOT NULL", conference_id)
+        meetings = one("SELECT COUNT(*) FROM encounters WHERE conference_id = ? "
+                       "AND meeting_requested = 1", conference_id)
+        drafts = one("SELECT COUNT(*) FROM encounters WHERE conference_id = ? "
+                     "AND followup_draft IS NOT NULL AND followup_draft != ''", conference_id)
+        briefs = one("SELECT COUNT(*) FROM briefs WHERE conference_id = ?", conference_id)
+        rows = conn.execute(
+            "SELECT e.id, e.contact_id, e.captured_at, e.meeting_requested, "
+            "c.primary_name, c.primary_company, c.primary_title, c.arc_verdict "
+            "FROM encounters e LEFT JOIN contacts c ON c.id = e.contact_id "
+            "WHERE e.conference_id = ? ORDER BY e.captured_at DESC LIMIT 15",
+            (conference_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "encounters": encounters, "contacts": contacts, "meetings": meetings,
+        "drafts": drafts, "briefs": briefs,
+        "connections": [dict(r) for r in rows],
+    }
+
+
 @router.post("/rescore", status_code=202)
 def rescore_all() -> dict:
     n = scoring.rescore_all()

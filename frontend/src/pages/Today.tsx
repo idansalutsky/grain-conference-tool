@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -40,6 +41,7 @@ const STAMP_QUIET = { color: "oklch(0.5 0.015 160)", background: "oklch(0.95 0.0
 
 export function TodayPage() {
   useDocumentTitle("Dashboard");
+  const [topN, setTopN] = useState(6);
   const { data, isLoading, error } = useQuery({
     queryKey: ["today", LENS_REP_ID],
     queryFn: () => api.get<TodayPayload>(`/api/today/${LENS_REP_ID}`),
@@ -112,13 +114,23 @@ export function TodayPage() {
               cost, the audience, and who's on it. Anything tier-A with no one is money left out.
             </p>
           </div>
-          <Link to="/planning" className="text-xs text-brand hover:underline shrink-0 whitespace-nowrap">
-            Plan the year →
-          </Link>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-1">
+              <span className="text-[0.65rem] uppercase tracking-wider text-ink-400 mr-1">top</span>
+              {[6, 10, 15].map((n) => (
+                <button key={n} onClick={() => setTopN(n)}
+                        className={"px-2 h-6 rounded text-xs font-semibold transition-colors " +
+                          (topN === n ? "bg-ink-900 text-white" : "bg-ink-100 text-ink-500 hover:bg-ink-200")}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <Link to="/planning" className="text-xs text-brand hover:underline whitespace-nowrap">Plan the year →</Link>
+          </div>
         </div>
 
         <div className="card divide-y divide-ink-100">
-          {events.map((e) => <EventRow key={e.id} e={e} />)}
+          {events.slice(0, topN).map((e) => <EventRow key={e.id} e={e} />)}
           <div className="px-4 py-2.5 text-right">
             <Link to="/conferences" className="text-xs text-brand hover:underline">All events & scoring →</Link>
           </div>

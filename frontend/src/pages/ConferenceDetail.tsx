@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { TierBadge, PersonaBadge } from "@/components/Badges";
+import { TierBadge, PersonaBadge, ArcBadge } from "@/components/Badges";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
 import { AgentRunner } from "@/components/AgentRunner";
 import { InlineReason } from "@/components/InlineReason";
@@ -211,9 +211,66 @@ export function ConferenceDetailPage() {
         </div>
       </div>
 
-      {/* AFTER the event — the wrap-up lives last, where it belongs in the flow. */}
+      {/* AFTER the event — the results, then the follow-up agent, last in the flow. */}
+      {id && <EventOutcomes conferenceId={id} />}
       {id && <PostEventFollowups conferenceId={id} conferenceName={c.name} />}
     </div>
+  );
+}
+
+// Per-event results — every connection, brief, meeting and follow-up tied to this
+// event, in one place (the manager's "what came out of it" view).
+function EventOutcomes({ conferenceId }: { conferenceId: string }) {
+  const { data } = useQuery({
+    queryKey: ["outcomes", conferenceId],
+    queryFn: () => api.get<any>(`/api/conferences/${conferenceId}/outcomes`),
+  });
+  if (!data) return null;
+  const stats = [
+    { n: data.contacts, label: "connections made" },
+    { n: data.meetings, label: "meetings booked" },
+    { n: data.briefs, label: "briefs prepped" },
+    { n: data.drafts, label: "follow-ups drafted" },
+  ];
+  return (
+    <section className="card p-4 sm:p-5 mb-6">
+      <h2 className="text-base font-semibold mb-0.5">Results — what happened here</h2>
+      <p className="text-xs text-ink-500 mb-3 max-w-[64ch]">
+        Every connection, brief, meeting and follow-up tied to this event, in one place.
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-ink-100">
+        {stats.map((s) => (
+          <div key={s.label} className="px-3 first:pl-0">
+            <div className="masthead text-2xl leading-none text-ink-900">{s.n}</div>
+            <div className="text-xs text-ink-500 mt-1">{s.label}</div>
+          </div>
+        ))}
+      </div>
+      {data.connections.length > 0 ? (
+        <div className="mt-4 border-t border-ink-100 pt-3 space-y-1.5">
+          <div className="rule-label">Connections</div>
+          {data.connections.map((c: any) => (
+            <div key={c.id} className="flex items-center gap-2 text-sm">
+              <span className="text-[0.7rem] font-mono text-ink-400 w-14 shrink-0">{(c.captured_at || "").slice(5, 10)}</span>
+              {c.contact_id ? (
+                <Link to={`/contacts/${c.contact_id}`} className="font-medium hover:underline truncate">{c.primary_name || "Unknown"}</Link>
+              ) : (
+                <span className="font-medium truncate">{c.primary_name || "?"}</span>
+              )}
+              <span className="text-xs text-ink-500 truncate">{c.primary_company || ""}</span>
+              {c.arc_verdict && <ArcBadge kind={c.arc_verdict} />}
+              {c.meeting_requested ? (
+                <span className="stamp ml-auto shrink-0" style={{ color: "oklch(0.42 0.09 158)", background: "oklch(0.95 0.03 158)", borderColor: "oklch(0.86 0.05 158)" }}>meeting</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-ink-500 mt-4 border-t border-ink-100 pt-3">
+          No connections captured here yet — they appear as reps capture in the field via Telegram.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -543,18 +600,18 @@ function PostEventFollowups({ conferenceId, conferenceName }: { conferenceId: st
     <section className="card p-4 sm:p-5 mb-6">
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div>
-          <h2 className="text-base font-semibold">After the event — follow-ups</h2>
+          <h2 className="text-base font-semibold">After the event — the follow-up agent</h2>
           <p className="text-xs text-ink-500 mt-0.5 max-w-[64ch]">
-            Draft a follow-up for everyone met at{" "}
+            One press: the agent drafts a follow-up for everyone met at{" "}
             <span className="text-ink-700 font-medium">{conferenceName}</span> — each
-            one references the event and what was actually discussed. Edit, then
-            push the batch to HubSpot. Nothing sends automatically.
+            referencing the event and what was actually discussed, prioritised by who's
+            worth chasing. Edit, then push the batch to HubSpot. Nothing sends automatically.
           </p>
         </div>
         <div className="flex gap-2">
           <button className="btn-primary" disabled={draftAll.isPending}
                   onClick={() => draftAll.mutate()}>
-            {draftAll.isPending ? "Drafting…" : "✍️ Draft follow-ups"}
+            {draftAll.isPending ? "Running…" : "🤖 Run the follow-up agent"}
           </button>
           {drafts && drafts.length > 0 && (
             <button className="btn-secondary" disabled={pushAll.isPending}
