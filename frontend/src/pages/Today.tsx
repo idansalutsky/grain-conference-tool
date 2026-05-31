@@ -56,7 +56,6 @@ export function TodayPage() {
   const seg = data.under_invested_segment;
   const nudges = data.nudges || [];
   const events = data.priority_events || [];
-  const attentionCount = (data.pending_discovery_count || 0) + (data.review_needed_count || 0);
   const coveredPct = f.events_ahead > 0 ? Math.round((f.covered / f.events_ahead) * 100) : 0;
   const rise = (i: number): React.CSSProperties => ({ animationDelay: `${i * 70}ms` });
 
@@ -217,50 +216,6 @@ export function TodayPage() {
         </section>
       )}
 
-      {/* === Quiet footer — what needs a human + the door to the full engine === */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 rise" style={rise(5)}>
-        <section className="card p-4 lg:col-span-2">
-          <div className="rule-label mb-3">
-            <span>{attentionCount > 0 ? `Needs you · ${attentionCount}` : "Needs you"}</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-            {data.pending_discovery_count > 0 && (
-              <Link to="/discovery" className="block group">
-                <div className="flex items-baseline gap-2">
-                  <span className="masthead text-2xl leading-none text-ink-900">{data.pending_discovery_count}</span>
-                  <span className="text-sm font-medium text-ink-900 group-hover:underline">
-                    new event{data.pending_discovery_count === 1 ? "" : "s"} to approve
-                  </span>
-                </div>
-                <div className="text-xs text-ink-500 mt-1">Discovery agent found events worth the trip →</div>
-              </Link>
-            )}
-            {data.review_needed_count > 0 && (
-              <Link to="/contacts" className="block group">
-                <div className="flex items-baseline gap-2">
-                  <span className="masthead text-2xl leading-none text-ink-900">{data.review_needed_count}</span>
-                  <span className="text-sm font-medium text-ink-900 group-hover:underline">
-                    {data.review_needed_count === 1 ? "match needs" : "matches need"} review
-                  </span>
-                </div>
-                <div className="text-xs text-ink-500 mt-1">Resolver wasn't sure — confirm or split →</div>
-              </Link>
-            )}
-            {attentionCount === 0 && (
-              <div className="text-sm text-ink-500 sm:col-span-2">Nothing pending. Quiet is good.</div>
-            )}
-          </div>
-        </section>
-
-        <Link to="/brain" className="card p-4 group hover:shadow-lift transition-shadow flex flex-col">
-          <div className="rule-label mb-3"><span>Under the hood</span></div>
-          <div className="font-display font-semibold text-ink-900 group-hover:underline">Intelligence →</div>
-          <p className="text-xs text-ink-500 mt-1.5 leading-relaxed">
-            How the floor read above is built — the gate that refuses bad leads, the
-            cross-conference memory, the events it's surfacing next.
-          </p>
-        </Link>
-      </div>
     </div>
   );
 }
