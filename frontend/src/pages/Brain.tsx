@@ -202,7 +202,6 @@ const KIND_META: Record<string, { label: string; line: string; hue: string }> = 
 
 const EXAMPLE_CAPTURE =
   "Met the CFO of Klook at Money20/20 — warm, asked for a follow-up";
-const EXAMPLE_DISCOVERY = "find new events we don't already track";
 // The money moment: an off-target lead the gate should refuse outright.
 const EXAMPLE_REFUSE =
   "Met the Head of FX at Convera at Money20/20";
@@ -1147,53 +1146,32 @@ function RunSection({
     <section>
       <div className="rule-label mb-3">Put it to work</div>
 
-      {/* ACTION-LED: two confident, deliberate moves up top. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-        {/* (a) Discovery — the primary action. */}
-        <div className="card p-4 sm:p-5 flex flex-col rise" style={{ animationDelay: "0ms" }}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg leading-none" aria-hidden>🔎</span>
-            <h3 className="text-base">Scan for new events</h3>
-          </div>
-          <p className="text-sm text-ink-500 flex-1 mb-3">
-            Sweep the web for conferences worth attending that you don&apos;t
-            already track — it surfaces candidates and waits for your call before
-            anything enters the plan.
-          </p>
+      {/* HERO: ask the team's memory — the real purpose of this page. */}
+      <div className="card p-5 mb-3 rise">
+        <h3 className="text-base mb-1">Ask the team&apos;s memory</h3>
+        <p className="text-sm text-ink-500 mb-3 max-w-[68ch]">
+          Everything the team has captured across every conference — who&apos;s warming,
+          where we&apos;re under-invested, what buyers said — in one place you can ask in
+          plain language. It answers from the compressed memory and cites what it used.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            className="input flex-1"
+            placeholder="Ask: where are we under-invested? who's warming in payments?"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") fire("free", text); }}
+          />
           <button
-            className="btn-primary self-start"
-            disabled={pending}
-            onClick={() => fire("scan", EXAMPLE_DISCOVERY)}
+            className="btn-primary shrink-0"
+            disabled={!text.trim() || pending}
+            onClick={() => fire("free", text)}
           >
-            {pending && busyAction === "scan" ? "Scanning…" : "Scan for new events"}
+            {pending && busyAction === "free" ? "…" : "Ask"}
           </button>
         </div>
-
-        {/* (b) The refusal demo — the money moment. */}
-        <div className="card p-4 sm:p-5 flex flex-col rise" style={{ animationDelay: "60ms" }}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg leading-none" aria-hidden>⛔</span>
-            <h3 className="text-base">Watch it refuse the wrong lead</h3>
-          </div>
-          <p className="text-sm text-ink-500 flex-1 mb-3">
-            Feed it a competitor contact and watch the gate reject it — the trace
-            and the reason, in the open. Noise control as a feature, not an
-            afterthought.
-          </p>
-          <button
-            className="btn-secondary self-start"
-            disabled={pending}
-            onClick={() => fire("refuse", EXAMPLE_REFUSE)}
-          >
-            {pending && busyAction === "refuse" ? "Running…" : "Run the refusal"}
-          </button>
-        </div>
-      </div>
-
-      {/* Secondary, de-emphasised: ask the intelligence a question. */}
-      <div className="card p-4 mb-4 rise" style={{ animationDelay: "120ms" }}>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 mb-2">
-          <span className="label">Ask the intelligence</span>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-xs text-ink-400">Try:</span>
           {SUGGESTED.map((q) => (
             <button
               key={q.label}
@@ -1206,24 +1184,24 @@ function RunSection({
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            className="input flex-1"
-            placeholder="…or capture a signal: Met the CFO of Klook at Money20/20 — warm"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") fire("free", text);
-            }}
-          />
-          <button
-            className="btn-ghost text-xs shrink-0"
-            disabled={!text.trim() || pending}
-            onClick={() => fire("free", text)}
-          >
-            {pending && busyAction === "free" ? "…" : "Send"}
-          </button>
+      </div>
+
+      {/* Secondary: the gate, as a small honest demo — not a headline. Finding new
+          events lives on Events → Find new, not here. */}
+      <div className="flex items-center justify-between gap-3 card p-3 mb-4 rise">
+        <div className="flex items-center gap-2 min-w-0">
+          <span aria-hidden>⛔</span>
+          <span className="text-sm text-ink-600 truncate">
+            See it refuse an off-ICP lead — the gate that keeps the memory clean.
+          </span>
         </div>
+        <button
+          className="btn-secondary text-xs shrink-0"
+          disabled={pending}
+          onClick={() => fire("refuse", EXAMPLE_REFUSE)}
+        >
+          {pending && busyAction === "refuse" ? "Running…" : "Run the refusal"}
+        </button>
       </div>
 
       {/* The decision + trace, shown the moment a run returns. */}
@@ -1696,11 +1674,12 @@ export function BrainPage() {
   return (
     <div className="space-y-10">
       <div>
-        <h1 className="text-2xl mb-1">Team Intelligence</h1>
-        <p className="text-base text-ink-700 max-w-[64ch] leading-relaxed">
-          Your team&apos;s event and relationship intelligence — it finds new
-          events worth attending, remembers the people you meet across them, and
-          filters out everything that doesn&apos;t fit who you sell to.
+        <h1 className="text-2xl mb-1">Intelligence</h1>
+        <p className="text-base text-ink-700 max-w-[66ch] leading-relaxed">
+          The team&apos;s memory you can ask. Every encounter the team captures across
+          conferences is compressed into a knowledge base — ask it in plain language
+          who&apos;s warming, where you&apos;re under-invested, or what a buyer said, and it
+          answers with what it learned and filters out everything off-ICP.
         </p>
       </div>
 
