@@ -10,7 +10,6 @@ const TABS = [
   { to: "/conferences", label: "Events", match: ["/conferences", "/planning", "/discovery"] },
   { to: "/contacts", label: "People", match: ["/contacts", "/nudges", "/companies"] },
   { to: "/team", label: "Team", match: ["/team"] },
-  { to: "/brain", label: "Intelligence", match: ["/brain"] },
 ];
 
 function isGroupActive(match: string[], path: string): boolean {
