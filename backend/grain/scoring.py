@@ -402,6 +402,19 @@ def score_conference(conf: dict, *, icp_competitors: Optional[list[str]] = None,
     if weights is None:
         weights = _live_weights()
 
+    # Weights are RELATIVE EMPHASIS, not absolutes. Normalise them to sum to 1.0
+    # before scoring. This keeps three promises the old code quietly broke:
+    #   - the score ALWAYS lands on a stable 0..100 scale, no matter how a user
+    #     drags a slider (before, dragging a weight to 1.0 pushed totals past 100
+    #     and made the A/B/C thresholds meaningless);
+    #   - the UI's "normalised when scoring" label is now literally true;
+    #   - the DEFAULT weights already sum to 1.0, so normalisation is a no-op for
+    #     them — every calibrated score and tier is preserved exactly.
+    raw_w = {k: max(0.0, float(weights.get(k, 0.0))) for k in DEFAULT_WEIGHTS}
+    w_sum = sum(raw_w.values())
+    norm_w = {k: (v / w_sum if w_sum > 0 else DEFAULT_WEIGHTS[k])
+              for k, v in raw_w.items()}
+
     scorers = [
         ("vertical_concentration", _vertical_concentration(conf)),
         ("buyer_reachability", _buyer_reachability(conf)),
@@ -415,7 +428,7 @@ def score_conference(conf: dict, *, icp_competitors: Optional[list[str]] = None,
     factors: list[FactorScore] = []
     total = 0.0
     for key, (raw, ev) in scorers:
-        w = float(weights.get(key, 0.0))
+        w = norm_w.get(key, 0.0)  # normalised emphasis (sums to 1.0)
         weighted = raw * w * 100  # to 0..100 scale
         total += weighted
         factors.append(FactorScore(key=key, raw=raw, weight=w, weighted=weighted, evidence=ev))

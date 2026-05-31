@@ -22,18 +22,29 @@ interface Conference {
 const TIERS = ["All", "A", "B", "C"];
 const REGIONS = ["All", "NA", "EU", "APAC", "MEA", "LATAM"];
 
-const FACTOR_LABEL: Record<string, string> = {
-  "scoring.vertical_concentration": "Vertical fit",
-  "scoring.buyer_density": "Buyer density",
-  "scoring.fx_exposure_proxy": "FX exposure",
-  "scoring.reachability": "Reachability",
-  "scoring.geo_cost_efficiency": "Geo & cost",
-  "scoring.competitive_validation": "Competitor presence",
-  "scoring.historical_yield": "Historical yield",
+// Each factor, with the label AND the one line that says what it actually
+// MEASURES — so the model reads as a defensible glass box, not arbitrary knobs.
+// Keys match the live scoring factors in backend/grain/scoring.py.
+const FACTOR_META: Record<string, { label: string; measures: string }> = {
+  "scoring.buyer_reachability": { label: "Buyer density", measures: "measured % finance/treasury + reachable commercial committee" },
+  "scoring.fx_exposure_proxy": { label: "FX exposure", measures: "agenda themes on cross-border / FX / settlement" },
+  "scoring.vertical_concentration": { label: "Vertical fit", measures: "event vertical sits on a Grain wedge (travel / payments / treasury)" },
+  "scoring.icp_strategic_fit": { label: "Strategic wedge", measures: "GTM-wedge centrality + ICP-shaped share of the room" },
+  "scoring.reachability": { label: "Floor access", measures: "format + size — can a rep actually work the room" },
+  "scoring.geo_cost_efficiency": { label: "Travel cost", measures: "region travel-cost efficiency" },
+  "scoring.historical_yield": { label: "Past yield", measures: "prior meetings/deals here (0 until we capture some)" },
 };
+// Show the factors in priority order, not registry order.
+const FACTOR_ORDER = [
+  "scoring.buyer_reachability", "scoring.fx_exposure_proxy",
+  "scoring.vertical_concentration", "scoring.icp_strategic_fit",
+  "scoring.reachability", "scoring.geo_cost_efficiency", "scoring.historical_yield",
+];
 
 // Live scoring tuner — drag a weight, every event re-scores and the list
 // re-ranks. The control sits next to its effect, not buried in Settings.
+// Weights are RELATIVE EMPHASIS: the % share each factor carries (normalised to
+// 100%) is shown live, so the manager sees what the score is actually built from.
 function ScoringTuner() {
   const qc = useQueryClient();
   const { push: toast } = useToast();
@@ -51,29 +62,42 @@ function ScoringTuner() {
   });
 
   if (weights.length === 0) return null;
+  const valueOf = (p: any) => vals[p.key] ?? Number(p.current);
+  const sorted = [...weights].sort(
+    (a, b) => FACTOR_ORDER.indexOf(a.key) - FACTOR_ORDER.indexOf(b.key));
+  const totalW = sorted.reduce((s, p) => s + Math.max(0, valueOf(p)), 0) || 1;
+
   return (
     <section className="card p-4 sm:p-5 mb-5">
-      <div className="rule-label mb-3">Tune scoring — events re-rank as you drag</div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-        {weights.map((p: any) => {
-          const v = vals[p.key] ?? Number(p.current);
+      <div className="rule-label mb-1">Tune scoring — events re-rank as you drag</div>
+      <p className="text-xs text-ink-500 mb-4 max-w-[70ch]">
+        Every factor is a measured or grounded signal — no magic numbers. Weights are
+        relative <em>emphasis</em>, normalised to 100% when scoring, so the score always
+        stays 0–100. The share each factor carries is shown live.
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
+        {sorted.map((p: any) => {
+          const v = valueOf(p);
+          const meta = FACTOR_META[p.key] || { label: p.key.replace("scoring.", "").replace(/_/g, " "), measures: "" };
+          const share = Math.round((Math.max(0, v) / totalW) * 100);
           return (
-            <div key={p.key} className="flex items-center gap-3">
-              <span className="text-sm text-ink-700 w-36 shrink-0">
-                {FACTOR_LABEL[p.key] || p.key.replace("scoring.", "").replace(/_/g, " ")}
-              </span>
+            <div key={p.key}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-ink-900">{meta.label}</span>
+                <span className="text-sm tabular-nums font-semibold text-ink-900">{share}%</span>
+              </div>
+              {meta.measures && <div className="text-xs text-ink-500 mt-0.5 leading-tight">{meta.measures}</div>}
               <input type="range" min={0} max={1} step={0.05} value={v}
                      onChange={(e) => setVals((m) => ({ ...m, [p.key]: Number(e.target.value) }))}
                      onMouseUp={() => commit.mutate({ key: p.key, value: v })}
                      onTouchEnd={() => commit.mutate({ key: p.key, value: v })}
-                     className="flex-1 accent-brand" />
-              <span className="text-xs tabular-nums w-9 text-right text-ink-500">{v.toFixed(2)}</span>
+                     className="w-full accent-brand mt-2" />
             </div>
           );
         })}
       </div>
       <p className="text-xs text-ink-500 mt-3">
-        {commit.isPending ? "Re-scoring…" : "Weights are 0–1; they're normalised when scoring. Adjust and watch the order change."}
+        {commit.isPending ? "Re-scoring…" : "Drag to change what matters; the list re-ranks and every score stays on the same 0–100 scale."}
       </p>
     </section>
   );
@@ -212,7 +236,6 @@ export function ConferencesPage() {
           <span className="label mr-1">Region</span>
           {REGIONS.map((r) => <Chip key={r} active={region === r} onClick={() => setRegion(r)}>{r}</Chip>)}
         </div>
-        <span className="sm:ml-auto text-xs text-ink-500 tabular-nums">{filtered.length} shown</span>
       </div>
 
       {isLoading && <div className="text-sm text-ink-500">Loading…</div>}
