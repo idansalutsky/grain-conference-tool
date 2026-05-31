@@ -2,9 +2,8 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { TierBadge, PersonaBadge, ArcBadge } from "@/components/Badges";
+import { TierBadge, ArcBadge } from "@/components/Badges";
 import { ScoreBreakdown } from "@/components/ScoreBreakdown";
-import { AgentRunner } from "@/components/AgentRunner";
 import { InlineReason } from "@/components/InlineReason";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 import { useToast, toastErrorMessage } from "@/components/Toast";
@@ -20,16 +19,6 @@ export function ConferenceDetailPage() {
     enabled: !!id,
   });
   useDocumentTitle(conf.data?.name || "Conference");
-  const targets = useQuery({
-    queryKey: ["people", id],
-    queryFn: () =>
-      api.get<{ items: any[] }>(`/api/people`, { query: { conference_id: id, limit: 50 } }),
-    enabled: !!id,
-  });
-  // Prep is handled entirely by the streaming agent (see <AgentRunner />) — a
-  // single mechanism, not an agent + a deterministic duplicate. The deterministic
-  // /api/briefs/prep endpoint still exists server-side; we just don't surface a
-  // competing card for it.
 
   // HIL: human can argue with the 7-factor score (e.g. "this event matters
   // more than the model thinks because we landed 2 deals here in 2024").
@@ -54,20 +43,6 @@ export function ConferenceDetailPage() {
   if (!conf.data) return null;
 
   const c = conf.data;
-  const items = targets.data?.items || [];
-
-  // Group people by persona for the buying-committee view
-  const byPersona: Record<string, any[]> = {};
-  for (const p of items) {
-    const k = p.persona || "OTHER";
-    (byPersona[k] = byPersona[k] || []).push(p);
-  }
-  // Verified-first within each persona — confirmed leads surface above AI-surfaced ones.
-  for (const k of Object.keys(byPersona)) {
-    byPersona[k].sort((a, b) => Number(!!b.verified) - Number(!!a.verified));
-  }
-  const order = ["BUYER", "CHAMPION", "PAIN_OWNER", "ENTRY_POINT", "GATEKEEPER", "INFLUENCER"];
-  const verifiedCount = items.filter((p) => p.verified).length;
 
   return (
     <div>
@@ -90,126 +65,68 @@ export function ConferenceDetailPage() {
         )}
       </div>
 
-      {/* The event page follows the rep's journey top-to-bottom:
-          DECIDE (why this event — score + intel) · PLAN (who covers it) ·
-          PREP (committee + pre-event briefs) · AFTER (follow-ups). */}
-      {id && <Coverage conferenceId={id} conferenceName={c.name} />}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-1 space-y-4">
-          <section className="card p-4">
-            <h2 className="label mb-2">Score breakdown</h2>
-            <ScoreBreakdown breakdown={c.score_breakdown} />
-            <div className="mt-3 pt-3 border-t border-ink-100">
-              <div className="text-[10px] uppercase tracking-wider text-ink-500 mb-1.5">
-                Argue with the score
-              </div>
-              <div className="flex gap-1 flex-wrap">
-                {[-5, -2, +2, +5].map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setArguingDelta((cur) => (cur === d ? null : d))}
-                    disabled={adjustScore.isPending}
-                    aria-pressed={arguingDelta === d}
-                    className={
-                      "btn-secondary text-xs px-2 py-1 " +
-                      (arguingDelta === d ? "bg-ink-100 border-ink-300" : "")
-                    }
-                  >
-                    {d > 0 ? `+${d}` : d}
-                  </button>
-                ))}
-              </div>
-              <InlineReason
-                open={arguingDelta !== null}
-                title={
-                  arguingDelta !== null
-                    ? `Reason for ${arguingDelta > 0 ? "+" : ""}${arguingDelta} score`
-                    : ""
-                }
-                placeholder={
-                  arguingDelta !== null && arguingDelta > 0
-                    ? "high-value past attendance"
-                    : "underwhelming agenda"
-                }
-                confirmLabel="Apply adjustment"
-                pending={adjustScore.isPending}
-                onConfirm={(reason) => {
-                  if (arguingDelta !== null) {
-                    adjustScore.mutate({ delta: arguingDelta, reason });
-                  }
-                }}
-                onCancel={() => setArguingDelta(null)}
-              />
-              <p className="text-[10px] text-ink-500 mt-1.5 italic">
-                Logged with your reason — auditable later.
-              </p>
+      {/* The event page is honest to the data we actually hold:
+          DECIDE (why it scores + who's measurably in the room) ·
+          PLAN (who covers it + their field-capture links) ·
+          AFTER (results once worked). We don't pre-scrape a named attendee list —
+          named people come from the field (Telegram), shown under Results. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        {/* WHY IT SCORES — compact, not half the screen. */}
+        <section className="card p-4 lg:col-span-1">
+          <div className="flex items-baseline gap-2 mb-3">
+            <div className="masthead text-3xl leading-none">{c.score?.toFixed(0) ?? "—"}</div>
+            <div className="text-sm text-ink-500">/ 100 · tier {c.tier}</div>
+          </div>
+          {c.score_breakdown
+            ? <ScoreBreakdown breakdown={c.score_breakdown} compact />
+            : <div className="text-xs text-ink-400">No breakdown.</div>}
+          <div className="mt-3 pt-3 border-t border-ink-100">
+            <div className="text-[10px] uppercase tracking-wider text-ink-500 mb-1.5">Argue with the score</div>
+            <div className="flex gap-1 flex-wrap">
+              {[-5, -2, +2, +5].map((d) => (
+                <button key={d}
+                        onClick={() => setArguingDelta((cur) => (cur === d ? null : d))}
+                        disabled={adjustScore.isPending}
+                        aria-pressed={arguingDelta === d}
+                        className={"btn-secondary text-xs px-2 py-1 " + (arguingDelta === d ? "bg-ink-100 border-ink-300" : "")}>
+                  {d > 0 ? `+${d}` : d}
+                </button>
+              ))}
             </div>
-          </section>
-          <section className="card p-4 space-y-3">
-            <h2 className="label">Event intel</h2>
-            {c.agenda_summary && (
-              <p className="text-xs text-ink-700 leading-relaxed">{c.agenda_summary}</p>
-            )}
-            <AudienceMix raw={c.audience_composition_json} />
-            <div className="text-xs space-y-1 text-ink-700 pt-1">
-              <div>Attendance estimate: {c.estimated_attendance?.toLocaleString() || "—"}</div>
-              <div>Conference pass: {c.cost_pass_usd ? `$${c.cost_pass_usd}` : "—"}</div>
-              <div>Booth: {c.cost_booth_usd ? `$${c.cost_booth_usd}` : "—"}</div>
-            </div>
-            {c.source_url && (
-              <a href={c.source_url} target="_blank" rel="noreferrer"
-                 className="text-xs text-brand hover:underline">data source ↗</a>
-            )}
-          </section>
-        </div>
+            <InlineReason
+              open={arguingDelta !== null}
+              title={arguingDelta !== null ? `Reason for ${arguingDelta > 0 ? "+" : ""}${arguingDelta} score` : ""}
+              placeholder={arguingDelta !== null && arguingDelta > 0 ? "high-value past attendance" : "underwhelming agenda"}
+              confirmLabel="Apply adjustment"
+              pending={adjustScore.isPending}
+              onConfirm={(reason) => { if (arguingDelta !== null) adjustScore.mutate({ delta: arguingDelta, reason }); }}
+              onCancel={() => setArguingDelta(null)}
+            />
+          </div>
+        </section>
 
-        <div className="lg:col-span-2 space-y-4">
-          {id && <AgentRunner conferenceId={id} />}
-
-          <section className="card p-4">
-            <div className="flex justify-between items-baseline mb-1">
-              <h2 className="label">Buying committee — who to approach</h2>
-              {verifiedCount > 0 ? (
-                <span className="text-xs text-ink-500">
-                  {verifiedCount} verified · {items.length} total
-                </span>
-              ) : items.length > 0 ? (
-                <span className="text-xs text-ink-500">
-                  {items.length} AI-surfaced lead{items.length === 1 ? "" : "s"} · verify before approaching
-                </span>
-              ) : null}
-            </div>
-            {items.length > 0 && (
-              <p className="text-xs text-ink-500 mb-3">
-                <span style={{ color: "oklch(0.45 0.11 158)" }}>✓ verified</span> = confirmed
-                against the live web by the agent today. Others are AI-surfaced leads —
-                verify before you approach (public attendee data goes stale fast).
-              </p>
-            )}
-            {order.map((k) => {
-              const list = byPersona[k];
-              if (!list?.length) return null;
-              return (
-                <div key={k} className="mb-4 last:mb-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <PersonaBadge persona={k} />
-                    <span className="text-xs text-ink-500">{list.length}</span>
-                  </div>
-                  <div className="space-y-1">
-                    {list.slice(0, 8).map((p) => (
-                      <PersonRow key={p.id} p={p} onAfterOverride={() => targets.refetch()} />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            {items.length === 0 && (
-              <EmptyCommittee raw={c.audience_composition_json} />
-            )}
-          </section>
-        </div>
+        {/* WHO'S IN THE ROOM — the measured audience signal (grounded), not a scraped name list. */}
+        <section className="card p-4 lg:col-span-2 space-y-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="label">Who's in the room</h2>
+            <span className="text-xs text-ink-400">measured audience mix — named people are captured in the field</span>
+          </div>
+          <AudienceMix raw={c.audience_composition_json} />
+          {c.agenda_summary && <p className="text-sm text-ink-700 leading-relaxed max-w-[74ch]">{c.agenda_summary}</p>}
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm pt-1">
+            <div><dt className="text-[0.65rem] uppercase tracking-wider text-ink-400">Dates</dt><dd className="text-ink-800">{c.start_date}{c.end_date && c.end_date !== c.start_date ? ` → ${c.end_date}` : ""}</dd></div>
+            <div><dt className="text-[0.65rem] uppercase tracking-wider text-ink-400">Attendance</dt><dd className="text-ink-800 tabular-nums">{c.estimated_attendance?.toLocaleString() || "—"}</dd></div>
+            <div><dt className="text-[0.65rem] uppercase tracking-wider text-ink-400">Pass</dt><dd className="text-ink-800 tabular-nums">{c.cost_pass_usd ? `$${Math.round(c.cost_pass_usd).toLocaleString()}` : "—"}</dd></div>
+            <div><dt className="text-[0.65rem] uppercase tracking-wider text-ink-400">Booth</dt><dd className="text-ink-800 tabular-nums">{c.cost_booth_usd ? `$${Math.round(c.cost_booth_usd).toLocaleString()}` : "—"}</dd></div>
+          </dl>
+          {c.source_url && (
+            <a href={c.source_url} target="_blank" rel="noreferrer" className="text-xs text-brand hover:underline">data source ↗</a>
+          )}
+        </section>
       </div>
+
+      {/* PLAN — who covers it + their field-capture links. */}
+      {id && <Coverage conferenceId={id} conferenceName={c.name} />}
 
       {/* AFTER the event — the results, then the follow-up agent, last in the flow. */}
       {id && <EventOutcomes conferenceId={id} />}
@@ -221,23 +138,56 @@ export function ConferenceDetailPage() {
 // Per-event results — every connection, brief, meeting and follow-up tied to this
 // event, in one place (the manager's "what came out of it" view).
 function EventOutcomes({ conferenceId }: { conferenceId: string }) {
+  const { push: toast } = useToast();
+  const [wrap, setWrap] = useState<any | null>(null);
   const { data } = useQuery({
     queryKey: ["outcomes", conferenceId],
     queryFn: () => api.get<any>(`/api/conferences/${conferenceId}/outcomes`),
   });
+  const summarize = useMutation({
+    mutationFn: () => api.post<any>(`/api/conferences/${conferenceId}/wrap`),
+    onSuccess: (d) => { setWrap(d); toast("success", "Summary generated"); },
+    onError: (e) => toast("error", toastErrorMessage(e)),
+  });
   if (!data) return null;
+  const hasResults = data.encounters > 0;
+  // Don't show a wall of zeros for an event nobody's worked yet — say so plainly.
+  if (!hasResults) {
+    return (
+      <section className="card p-4 sm:p-5 mb-6">
+        <h2 className="text-base font-semibold mb-0.5">Results — what happened here</h2>
+        <p className="text-sm text-ink-500 max-w-[66ch]">
+          Nothing captured yet. As reps work the floor and log connections from the field via
+          Telegram, the people met, meetings and follow-ups appear here — then the summary and
+          drafts are one click away.
+        </p>
+      </section>
+    );
+  }
   const stats = [
     { n: data.contacts, label: "connections made" },
     { n: data.meetings, label: "meetings booked" },
     { n: data.briefs, label: "briefs prepped" },
     { n: data.drafts, label: "follow-ups drafted" },
   ];
+  const meetStamp = { color: "oklch(0.42 0.09 158)", background: "oklch(0.95 0.03 158)", borderColor: "oklch(0.86 0.05 158)" };
   return (
     <section className="card p-4 sm:p-5 mb-6">
-      <h2 className="text-base font-semibold mb-0.5">Results — what happened here</h2>
-      <p className="text-xs text-ink-500 mb-3 max-w-[64ch]">
-        Every connection, brief, meeting and follow-up tied to this event, in one place.
-      </p>
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 className="text-base font-semibold mb-0.5">Results — what happened here</h2>
+          <p className="text-xs text-ink-500 max-w-[64ch]">
+            Every connection, brief, meeting and follow-up tied to this event, in one place.
+          </p>
+        </div>
+        {hasResults && (
+          <button className="btn-primary text-xs shrink-0" disabled={summarize.isPending}
+                  onClick={() => summarize.mutate()}>
+            {summarize.isPending ? "Summarising…" : "🧠 Generate event summary"}
+          </button>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-ink-100">
         {stats.map((s) => (
           <div key={s.label} className="px-3 first:pl-0">
@@ -246,6 +196,50 @@ function EventOutcomes({ conferenceId }: { conferenceId: string }) {
           </div>
         ))}
       </div>
+
+      {/* The generated narrative recap. */}
+      {wrap && (
+        <div className="mt-4 border-t border-ink-100 pt-3">
+          <div className="rule-label mb-1">
+            <span>Event summary{wrap.source === "deterministic" ? " (no-LLM recap)" : ""}</span>
+          </div>
+          <p className="text-sm text-ink-800 leading-relaxed max-w-[72ch]">{wrap.summary}</p>
+          {wrap.urgent?.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[0.65rem] uppercase tracking-wider text-ink-400 mb-1">Urgent</div>
+              <ul className="text-sm text-ink-700 space-y-0.5">
+                {wrap.urgent.map((u: string, i: number) => <li key={i}>• {u}</li>)}
+              </ul>
+            </div>
+          )}
+          {wrap.account_plays?.length > 0 && (
+            <div className="mt-2">
+              <div className="text-[0.65rem] uppercase tracking-wider text-ink-400 mb-1">Account plays</div>
+              <ul className="text-sm text-ink-700 space-y-0.5">
+                {wrap.account_plays.map((p: any, i: number) => (
+                  <li key={i}>• {typeof p === "string" ? p : (p.account ? `${p.account}: ${p.play || p.note || ""}` : JSON.stringify(p))}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Who logged what — per-rep field activity (from Telegram). */}
+      {hasResults && data.by_rep?.length > 0 && (
+        <div className="mt-4 border-t border-ink-100 pt-3">
+          <div className="rule-label mb-1.5">By rep — captured from the field</div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            {data.by_rep.map((r: any) => (
+              <span key={r.rep} className="text-ink-700">
+                <span className="font-semibold">{r.rep}</span>
+                <span className="text-ink-500"> — {r.captures} logged{r.meetings ? `, ${r.meetings} meeting${r.meetings === 1 ? "" : "s"}` : ""}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data.connections.length > 0 ? (
         <div className="mt-4 border-t border-ink-100 pt-3 space-y-1.5">
           <div className="rule-label">Connections</div>
@@ -253,14 +247,14 @@ function EventOutcomes({ conferenceId }: { conferenceId: string }) {
             <div key={c.id} className="flex items-center gap-2 text-sm">
               <span className="text-[0.7rem] font-mono text-ink-400 w-14 shrink-0">{(c.captured_at || "").slice(5, 10)}</span>
               {c.contact_id ? (
-                <Link to={`/contacts/${c.contact_id}`} className="font-medium hover:underline truncate">{c.primary_name || "Unknown"}</Link>
+                <Link to={`/contacts/${c.contact_id}`} className="font-medium hover:underline truncate shrink-0">{c.primary_name || "Unknown"}</Link>
               ) : (
-                <span className="font-medium truncate">{c.primary_name || "?"}</span>
+                <span className="font-medium truncate shrink-0">{c.primary_name || "?"}</span>
               )}
-              <span className="text-xs text-ink-500 truncate">{c.primary_company || ""}</span>
+              <span className="text-xs text-ink-500 truncate">{c.primary_company || ""}{c.what ? ` — ${c.what}` : ""}</span>
               {c.arc_verdict && <ArcBadge kind={c.arc_verdict} />}
               {c.meeting_requested ? (
-                <span className="stamp ml-auto shrink-0" style={{ color: "oklch(0.42 0.09 158)", background: "oklch(0.95 0.03 158)", borderColor: "oklch(0.86 0.05 158)" }}>meeting</span>
+                <span className="stamp ml-auto shrink-0" style={meetStamp}>meeting</span>
               ) : null}
             </div>
           ))}
@@ -298,55 +292,6 @@ function AudienceMix({ raw }: { raw?: string | null }) {
       </div>
       <div className="flex h-2.5 rounded overflow-hidden bg-ink-100" title="Scraped audience composition">
         {segs.map((s) => <div key={s.label} style={{ flex: s.pct, background: s.color }} title={`${s.label}: ${s.pct}%`} />)}
-      </div>
-    </div>
-  );
-}
-
-// Empty buying-committee state — grounded in the MEASURED audience signal we
-// already have (audience_composition_json), not a blank. Honest about why we
-// don't pre-scrape named attendees, and points at the real next step that
-// already lives on this page (Coverage → per-rep Telegram capture link).
-function EmptyCommittee({ raw }: { raw?: string | null }) {
-  let comp: any = null;
-  if (raw) {
-    try { comp = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { comp = null; }
-  }
-  const fin: number | null = comp?.cfo_treasury_finance_pct ?? null;
-  const commercial: number | null = comp?.marketing_sales_pct ?? null;
-  // Frame to the number: high finance density → buyers are here; otherwise lead
-  // with the commercial / entry-point crowd. Honest to whatever the data says.
-  const buyerHeavy = fin != null && fin >= 40;
-  let headline: string;
-  if (buyerHeavy) {
-    headline = `This event draws a ${fin}% finance / treasury audience — the buyers are in the room.`;
-  } else if (commercial != null && commercial > 0) {
-    headline = `Lighter on treasury, but ~${commercial}% commercial — work the entry points to get to the buyer.`;
-  } else if (fin != null) {
-    headline = `Measured at ${fin}% finance / treasury — read the audience mix before you commit a rep.`;
-  } else {
-    headline = "Named attendees are mapped in the field, not pre-scraped.";
-  }
-
-  return (
-    <div className="rounded-md border border-ink-200 bg-ink-50/40 p-4">
-      <p className="text-sm font-semibold text-ink-900">{headline}</p>
-      <p className="text-xs text-ink-500 mt-1.5 max-w-[58ch]">
-        We haven't mapped named attendees yet — committee intel is captured in the
-        field, not pre-scraped (public attendee data goes stale fast). Here's how
-        to work it:
-      </p>
-      <div className="flex flex-wrap gap-2 mt-3">
-        <a
-          href="#coverage"
-          onClick={(e) => {
-            e.preventDefault();
-            document.getElementById("coverage")?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-          className="btn-primary text-xs"
-        >
-          ↓ Assign a rep & get their Telegram capture link
-        </a>
       </div>
     </div>
   );
@@ -466,92 +411,6 @@ function Coverage({ conferenceId, conferenceName }: { conferenceId: string; conf
 const PERSONA_OVERRIDES = [
   "BUYER", "CHAMPION", "PAIN_OWNER", "ENTRY_POINT", "GATEKEEPER", "INFLUENCER",
 ];
-
-function PersonRow({ p, onAfterOverride }: { p: any; onAfterOverride: () => void }) {
-  const { push: toast } = useToast();
-  // Which persona is being justified (its reason input is open).
-  const [pendingPersona, setPendingPersona] = useState<string | null>(null);
-  const override = useMutation({
-    mutationFn: ({ persona, reason }: { persona: string; reason: string }) =>
-      api.post<any>(`/api/people/${p.id}/icp/override`, {
-        persona, reason, decided_by: "ui:conference_detail",
-      }),
-    onSuccess: () => {
-      toast("success", "Persona overridden");
-      setPendingPersona(null);
-      onAfterOverride();
-    },
-    onError: (e) => toast("error", toastErrorMessage(e)),
-  });
-  return (
-    <div className="flex justify-between items-start text-sm group">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-medium">{p.full_name}</span>
-          {p.verified ? (
-            <span className="text-[0.6rem] font-bold uppercase tracking-wide px-1 py-0.5 rounded"
-                  style={{ color: "oklch(0.45 0.11 158)", background: "oklch(0.95 0.04 158)" }}
-                  title="Verified against the live web by the agent">✓ verified</span>
-          ) : (
-            <span className="text-[0.6rem] uppercase tracking-wide text-ink-500" title="AI-surfaced lead — verify before approaching">unverified</span>
-          )}
-          {p.linkedin_url && (
-            <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="text-brand text-xs hover:underline" onClick={(e) => e.stopPropagation()}>in↗</a>
-          )}
-          <span className="text-ink-500"> — {p.title || "?"}</span>
-        </div>
-        <div className="text-xs text-ink-500">
-          {p.company_id ? (
-            <Link to={`/companies/${p.company_id}`} className="hover:text-brand">
-              {p.company_name}
-            </Link>
-          ) : (
-            p.company_name
-          )}
-        </div>
-      </div>
-      <details className="ml-2 shrink-0 opacity-30 group-hover:opacity-100 transition-opacity">
-        <summary className="text-xs text-ink-500 cursor-pointer hover:text-ink-900 list-none">
-          ⋯
-        </summary>
-        <div className="absolute right-0 mt-1 bg-white rounded shadow-lg border border-ink-200 p-2 z-10 w-64">
-          <div className="text-[10px] uppercase text-ink-500 mb-1">Override persona</div>
-          <div className="flex flex-wrap gap-0.5">
-            {PERSONA_OVERRIDES.map((k) => (
-              <button
-                key={k}
-                onClick={() => setPendingPersona((cur) => (cur === k ? null : k))}
-                disabled={override.isPending}
-                aria-pressed={pendingPersona === k}
-                className={
-                  "px-1.5 py-0.5 text-[10px] rounded border " +
-                  (p.persona === k
-                    ? "bg-brand text-white border-brand"
-                    : pendingPersona === k
-                    ? "bg-ink-100 text-ink-900 border-ink-300"
-                    : "bg-ink-50 text-ink-700 border-ink-200 hover:bg-ink-100")
-                }
-              >
-                {k.replace("_", " ")}
-              </button>
-            ))}
-          </div>
-          <InlineReason
-            open={pendingPersona !== null}
-            title={pendingPersona ? `Why classify as ${pendingPersona.replace("_", " ")}?` : ""}
-            placeholder="rep judgment on the ground"
-            confirmLabel="Override"
-            pending={override.isPending}
-            onConfirm={(reason) => {
-              if (pendingPersona) override.mutate({ persona: pendingPersona, reason });
-            }}
-            onCancel={() => setPendingPersona(null)}
-          />
-        </div>
-      </details>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Post-event follow-ups — draft for everyone met here (event + conversation

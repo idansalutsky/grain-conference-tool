@@ -158,19 +158,69 @@ def conference_outcomes(conference_id: str) -> dict:
                      "AND followup_draft IS NOT NULL AND followup_draft != ''", conference_id)
         briefs = one("SELECT COUNT(*) FROM briefs WHERE conference_id = ?", conference_id)
         rows = conn.execute(
-            "SELECT e.id, e.contact_id, e.captured_at, e.meeting_requested, "
-            "c.primary_name, c.primary_company, c.primary_title, c.arc_verdict "
+            "SELECT e.id, e.contact_id, e.captured_at, e.meeting_requested, e.capture_mode, "
+            "e.structured_json, c.primary_name, c.primary_company, c.primary_title, c.arc_verdict "
             "FROM encounters e LEFT JOIN contacts c ON c.id = e.contact_id "
             "WHERE e.conference_id = ? ORDER BY e.captured_at DESC LIMIT 15",
             (conference_id,),
         ).fetchall()
+        # Per-rep capture breakdown — who logged how much from the field (Telegram).
+        rep_rows = conn.execute(
+            "SELECT COALESCE(r.full_name, 'Unattributed') AS rep, COUNT(*) AS captures, "
+            "SUM(CASE WHEN e.meeting_requested = 1 THEN 1 ELSE 0 END) AS meetings "
+            "FROM encounters e LEFT JOIN reps r ON r.id = e.rep_id "
+            "WHERE e.conference_id = ? GROUP BY e.rep_id ORDER BY captures DESC",
+            (conference_id,),
+        ).fetchall()
     finally:
         conn.close()
+
+    def _what(sj):
+        try:
+            return (json.loads(sj or "{}").get("what_discussed") or "")[:160]
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    connections = []
+    for r in rows:
+        d = dict(r)
+        d["what"] = _what(d.pop("structured_json", None))
+        connections.append(d)
     return {
         "encounters": encounters, "contacts": contacts, "meetings": meetings,
         "drafts": drafts, "briefs": briefs,
-        "connections": [dict(r) for r in rows],
+        "by_rep": [{"rep": x[0], "captures": x[1], "meetings": x[2] or 0} for x in rep_rows],
+        "connections": connections,
     }
+
+
+@router.post("/{conference_id}/wrap")
+def wrap_event(conference_id: str) -> dict:
+    """The post-event 'summary' button: run the tool-calling wrap agent to produce
+    a narrative recap (what came up, who's urgent, account plays). Falls back to a
+    deterministic summary when the LLM key isn't configured, so the button always
+    returns something real — never a dead demo."""
+    from ... import agent_wrap
+    try:
+        res = agent_wrap.run_wrap_agent(conference_id)
+    except Exception:  # noqa: BLE001 — the agent must never 500 the page
+        res = None
+    if res:
+        res["source"] = "agent"
+        return res
+    # Deterministic fallback from the outcomes we already compute.
+    o = conference_outcomes(conference_id)
+    warming = [c for c in o["connections"] if c.get("arc_verdict") == "warming"]
+    summary = (
+        f"{o['contacts']} connections captured ({o['encounters']} touches), "
+        f"{o['meetings']} with a meeting requested. {o['drafts']} follow-ups drafted, "
+        f"{o['briefs']} briefs prepped."
+    )
+    urgent = [
+        f"{c['primary_name']} ({c.get('primary_company') or '?'}) — warming, no meeting booked yet"
+        for c in warming if not c.get("meeting_requested") and c.get("primary_name")
+    ][:5]
+    return {"summary": summary, "urgent": urgent, "missing_info": [],
+            "account_plays": [], "source": "deterministic"}
 
 
 @router.post("/rescore", status_code=202)

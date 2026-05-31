@@ -31,6 +31,7 @@ function whenLabel(days?: number | null, start?: string | null): string {
   let d = days;
   if (d == null && start) d = Math.round((new Date(start).getTime() - Date.now()) / 86400000);
   if (d == null) return "—";
+  if (d < -1) { const a = Math.abs(d); return a < 31 ? `${a}d` : `${Math.round(a / 30)}mo`; }
   if (d <= 0) return "now";
   if (d < 31) return `${d}d`;
   return `${Math.round(d / 30)}mo`;
@@ -59,11 +60,20 @@ export function EventRow({ e }: { e: EventRowData }) {
     queryFn: () => api.get<{ items: any[] }>("/api/coverage", { query: { conference_id: e.id } }),
     enabled: open,
   });
+  const outcomes = useQuery({
+    queryKey: ["outcomes", e.id],
+    queryFn: () => api.get<any>(`/api/conferences/${e.id}/outcomes`),
+    enabled: open,
+  });
 
+  const daysVal = e.days_until ?? (e.start_date ? Math.round((new Date(e.start_date).getTime() - Date.now()) / 86400000) : null);
+  const isPast = daysVal != null && daysVal < -1;
   const uncovered = (e.reps_assigned ?? 0) === 0;
   const exposed = uncovered && e.tier === "A";
   const density = densityOf(e);
   const d = detail.data;
+  const o = outcomes.data;
+  const hasResults = !!o && o.encounters > 0;
 
   return (
     <div>
@@ -71,7 +81,7 @@ export function EventRow({ e }: { e: EventRowData }) {
               className="w-full flex items-center gap-3 sm:gap-4 px-4 py-3 text-left hover:bg-ink-50 transition-colors">
         <div className="w-10 shrink-0 text-center">
           <div className="font-display font-semibold text-base leading-none text-ink-900">{whenLabel(e.days_until, e.start_date)}</div>
-          <div className="text-[0.6rem] uppercase tracking-wider text-ink-400 mt-0.5">out</div>
+          <div className="text-[0.6rem] uppercase tracking-wider text-ink-400 mt-0.5">{isPast ? "ago" : "out"}</div>
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-display font-semibold text-ink-900 truncate">{e.name}</div>
@@ -101,35 +111,61 @@ export function EventRow({ e }: { e: EventRowData }) {
       <div className="grid transition-[grid-template-rows] duration-300 ease-out"
            style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
-          <div className="px-4 pb-4 pt-1 pl-[4.5rem] grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3">
-            {/* how the score is built */}
-            <div>
-              <div className="rule-label mb-2"><span>Why this score</span></div>
-              {detail.isLoading ? <div className="text-xs text-ink-400">Loading…</div>
-                : d?.score_breakdown ? <ScoreBreakdown breakdown={d.score_breakdown} compact />
-                : <div className="text-xs text-ink-400">No breakdown.</div>}
-            </div>
-            {/* the facts + coverage */}
-            <div className="space-y-3">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                <Fact term="Dates" val={d ? `${d.start_date || "?"}${d.end_date && d.end_date !== d.start_date ? ` → ${d.end_date}` : ""}` : (e.start_date || "—")} />
-                <Fact term="Region" val={d?.region || "—"} />
-                <Fact term="Audience" val={d?.estimated_attendance ? `${d.estimated_attendance.toLocaleString()} att.` : "—"} />
-                <Fact term="Pass" val={money(e.cost_pass_usd ?? d?.cost_pass_usd)} />
-              </dl>
-              {d?.agenda_summary && <p className="text-xs text-ink-600 leading-relaxed max-w-[60ch]">{d.agenda_summary}</p>}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rule-label !mb-0"><span>Coverage</span></span>
-                {cov.data && cov.data.items.length > 0 ? (
-                  cov.data.items.map((r: any) => <span key={r.rep_id} className="stamp" style={STAMP_OK}>{r.rep_name}</span>)
-                ) : (
-                  <span className="text-sm text-ink-500">{cov.isLoading ? "…" : "No one assigned yet."}</span>
-                )}
-                <Link to={`/conferences/${e.id}`} className="btn-primary text-xs ml-auto">
-                  {uncovered ? "Assign a rep →" : "Open event →"}
-                </Link>
+          <div className="px-4 pb-4 pt-1 pl-[4.5rem] space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3">
+              {/* how the score is built */}
+              <div>
+                <div className="rule-label mb-2"><span>Why this score</span></div>
+                {detail.isLoading ? <div className="text-xs text-ink-400">Loading…</div>
+                  : d?.score_breakdown ? <ScoreBreakdown breakdown={d.score_breakdown} compact />
+                  : <div className="text-xs text-ink-400">No breakdown.</div>}
+              </div>
+              {/* the facts + coverage */}
+              <div className="space-y-3">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <Fact term="Dates" val={d ? `${d.start_date || "?"}${d.end_date && d.end_date !== d.start_date ? ` → ${d.end_date}` : ""}` : (e.start_date || "—")} />
+                  <Fact term="Region" val={d?.region || "—"} />
+                  <Fact term="Audience" val={d?.estimated_attendance ? `${d.estimated_attendance.toLocaleString()} att.` : "—"} />
+                  <Fact term="Pass" val={money(e.cost_pass_usd ?? d?.cost_pass_usd)} />
+                </dl>
+                {d?.agenda_summary && <p className="text-xs text-ink-600 leading-relaxed max-w-[60ch]">{d.agenda_summary}</p>}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rule-label !mb-0"><span>Coverage</span></span>
+                  {cov.data && cov.data.items.length > 0 ? (
+                    cov.data.items.map((r: any) => <span key={r.rep_id} className="stamp" style={STAMP_OK}>{r.rep_name}</span>)
+                  ) : (
+                    <span className="text-sm text-ink-500">{cov.isLoading ? "…" : "No one assigned yet."}</span>
+                  )}
+                  <Link to={`/conferences/${e.id}`} className="btn-primary text-xs ml-auto">
+                    {uncovered ? "Assign a rep →" : "Open event →"}
+                  </Link>
+                </div>
               </div>
             </div>
+
+            {/* what came out of it — only when there's something to show */}
+            {hasResults && (
+              <div className="border-t border-ink-100 pt-3">
+                <div className="rule-label mb-2"><span>Results — what came back</span></div>
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-ink-700">
+                  <span><span className="font-semibold tabular-nums">{o.contacts}</span> <span className="text-ink-500">connections</span></span>
+                  <span><span className="font-semibold tabular-nums">{o.meetings}</span> <span className="text-ink-500">meetings</span></span>
+                  <span><span className="font-semibold tabular-nums">{o.briefs}</span> <span className="text-ink-500">briefs</span></span>
+                  <span><span className="font-semibold tabular-nums">{o.drafts}</span> <span className="text-ink-500">follow-ups</span></span>
+                </div>
+                {o.connections?.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
+                    {o.connections.slice(0, 6).map((c: any) => (
+                      <span key={c.id} className="truncate">
+                        <span className="text-ink-700">{c.primary_name || "?"}</span>
+                        {c.primary_company ? ` · ${c.primary_company}` : ""}
+                        {c.meeting_requested ? <span className="text-emerald-700"> · meeting</span> : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -212,6 +212,38 @@ def _priority_events(n: int = 8) -> list[dict]:
         conn.close()
 
 
+def _events_with_results(n: int = 3) -> list[dict]:
+    """Events the team has actually worked — anything with captured encounters —
+    most-recent activity first, with the results that came back. This is the
+    'what did our events return' recap (the product, not a CRUD list). We key on
+    'has encounters' rather than calendar-past because the value is the same: an
+    event in motion with connections to show."""
+    conn = db.get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT c.id, c.name, c.city, c.country, c.tier, "
+            "MAX(e.captured_at) AS last_at, COUNT(*) AS encounters "
+            "FROM encounters e JOIN conferences c ON c.id = e.conference_id "
+            "GROUP BY c.id ORDER BY last_at DESC LIMIT ?",
+            (n,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["contacts"] = conn.execute(
+                "SELECT COUNT(DISTINCT contact_id) FROM encounters "
+                "WHERE conference_id = ? AND contact_id IS NOT NULL", (d["id"],)
+            ).fetchone()[0]
+            d["meetings"] = conn.execute(
+                "SELECT COUNT(*) FROM encounters WHERE conference_id = ? "
+                "AND meeting_requested = 1", (d["id"],)
+            ).fetchone()[0]
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
 def _floor_summary() -> dict:
     """The state of the floor — the numbers a manager wants the second they open
     the tool: how much high-value ground is ahead, how much of it we actually
@@ -361,6 +393,7 @@ def for_rep(rep_id: str) -> dict:
         "priority_events": _priority_events(15),
         "floor": _floor_summary(),
         "under_invested_segment": _under_invested_segment(),
+        "recent_results": _events_with_results(3),
         "recent_captures": _recent_captures(rep_id, 5),
         "pending_discovery_count": _pending_discovery_count(),
         "review_needed_count": _review_needed_count(),

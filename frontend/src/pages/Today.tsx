@@ -33,6 +33,7 @@ interface TodayPayload {
   priority_events: PriorityEvent[];
   floor: Floor;
   under_invested_segment: { vertical: string; ahead: number; uncovered: number } | null;
+  recent_results: { id: string; name: string; city: string | null; country: string | null; tier: string | null; contacts: number; meetings: number; encounters: number }[];
   pending_discovery_count: number;
   review_needed_count: number;
 }
@@ -184,6 +185,37 @@ export function TodayPage() {
           </div>
         )}
       </section>
+
+      {/* === Recent results — what the events we worked actually returned === */}
+      {data.recent_results && data.recent_results.length > 0 && (
+        <section className="rise" style={rise(4)}>
+          <div className="flex items-baseline justify-between gap-3 mb-4">
+            <div>
+              <h2 className="masthead text-xl leading-none">What's come back</h2>
+              <p className="text-sm text-ink-500 mt-1.5 max-w-[60ch]">
+                The events the team has worked, and the connections they returned — open
+                any for the full recap and follow-ups.
+              </p>
+            </div>
+          </div>
+          <div className="card divide-y divide-ink-100">
+            {data.recent_results.map((r) => (
+              <Link key={r.id} to={`/conferences/${r.id}`}
+                    className="flex items-center gap-4 px-4 py-3 hover:bg-ink-50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="font-display font-semibold text-ink-900 truncate">{r.name}</div>
+                  <div className="text-xs text-ink-500 mt-0.5">{r.city}{r.country ? `, ${r.country}` : ""}</div>
+                </div>
+                <div className="flex items-center gap-5 shrink-0 text-right">
+                  <div><div className="font-semibold tabular-nums text-ink-900">{r.contacts}</div><div className="text-[0.6rem] uppercase tracking-wider text-ink-400">connections</div></div>
+                  <div><div className="font-semibold tabular-nums text-ink-900">{r.meetings}</div><div className="text-[0.6rem] uppercase tracking-wider text-ink-400">meetings</div></div>
+                  <span className="text-ink-300">→</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* === Quiet footer — what needs a human + the door to the full engine === */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 rise" style={rise(5)}>
