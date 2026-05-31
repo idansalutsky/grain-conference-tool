@@ -322,8 +322,13 @@ def mentioned_events_signal(limit: int = 12) -> list[dict]:
     conn = db.get_conn()
     try:
         rows = conn.execute(
-            "SELECT contact_id, structured_json FROM encounters "
-            "WHERE structured_json LIKE '%mentioned_events%'"
+            "SELECT e.contact_id, e.structured_json, "
+            "c.primary_name, c.primary_company, c.primary_title, "
+            "r.full_name AS rep_name "
+            "FROM encounters e "
+            "LEFT JOIN contacts c ON c.id = e.contact_id "
+            "LEFT JOIN reps r ON r.id = e.rep_id "
+            "WHERE e.structured_json LIKE '%mentioned_events%'"
         ).fetchall()
         tracked_norms = {
             _norm_conf_name(r["name"])
@@ -341,25 +346,42 @@ def mentioned_events_signal(limit: int = 12) -> list[dict]:
         evs = s.get("mentioned_events") or []
         if not isinstance(evs, list):  # defensive: never iterate a bare string
             evs = [evs] if isinstance(evs, str) else []
+        # who mentioned it, and to which rep — provenance for the signal.
+        src = {
+            "contact": r["primary_name"] or s.get("name") or "a buyer",
+            "company": r["primary_company"] or s.get("company"),
+            "title": r["primary_title"] or s.get("title"),
+            "rep": r["rep_name"],
+        }
         for ev in evs:
             name = (ev or "").strip() if isinstance(ev, str) else ""
             if not name:
                 continue
             norm = _norm_conf_name(name)
             entry = agg.setdefault(
-                norm, {"name": name, "count": 0, "_contacts": set()})
+                norm, {"name": name, "count": 0, "_contacts": set(), "sources": []})
             entry["count"] += 1
             if r["contact_id"]:
                 entry["_contacts"].add(r["contact_id"])
+            entry["sources"].append(src)
             entry["tracked"] = norm in tracked_norms
 
     out = []
     for norm, e in agg.items():
+        # de-dupe provenance by (contact, company); keep a few.
+        seen, srcs = set(), []
+        for sc in e["sources"]:
+            key = (sc["contact"], sc.get("company"))
+            if key in seen:
+                continue
+            seen.add(key)
+            srcs.append(sc)
         out.append({
             "name": e["name"],
             "count": e["count"],
             "contacts": len(e["_contacts"]),
             "tracked": e.get("tracked", norm in tracked_norms),
+            "sources": srcs[:4],
         })
     out.sort(key=lambda x: (x["contacts"], x["count"]), reverse=True)
     return out[:limit]

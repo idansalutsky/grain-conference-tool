@@ -80,13 +80,18 @@ export function DiscoveryPage() {
       <h1 className="text-2xl mb-1">Events</h1>
       <SubTabs items={EVENTS_TABS} />
       <h2 className="text-lg mb-1">Find events you don't already know about</h2>
-      <p className="text-sm text-ink-500 mb-4 max-w-[60ch]">
-        Ask Perplexity Sonar to surface upcoming events relevant to Grain's ICP
-        that aren't in our database. Approve the ones that look right — they
-        get auto-scored against the same 7-factor model.
+      <p className="text-sm text-ink-500 mb-4 max-w-[66ch]">
+        Two engines, one queue. We <span className="text-ink-700 font-medium">scan the web</span> for
+        ICP-fit conferences you don't track, and we <span className="text-ink-700 font-medium">listen to
+        your conversations</span> — the events your own buyers mention in the field. Both feed the
+        approval queue below; nothing is added without your call, and anything approved is auto-scored.
       </p>
 
-      <section className="card p-4 mb-4">
+      <div className="rule-label mb-2"><span>1 · Scan the web</span></div>
+      <section className="card p-4 mb-5">
+        <p className="text-xs text-ink-500 mb-3 max-w-[62ch]">
+          Perplexity Sonar searches for upcoming events relevant to Grain's ICP that aren't in the database.
+        </p>
         <div className="flex flex-wrap gap-3 items-center">
           <div>
             <span className="label">Region</span>
@@ -133,60 +138,68 @@ export function DiscoveryPage() {
         </div>
       )}
 
-      {!!mentioned.data?.events?.length && (
-        <section className="card p-4 mb-4">
+      <div className="rule-label mb-2"><span>2 · From your conversations</span></div>
+      {mentioned.data?.events?.length ? (
+        <section className="card p-4 mb-5">
           <div className="flex items-start justify-between gap-3 mb-1">
-            <div className="label">Events your buyers mention</div>
+            <p className="text-xs text-ink-500 max-w-[58ch]">
+              When a buyer tells a rep where they go, that's a signal. Untracked events
+              several buyers mention are strong candidates — research one and the agent
+              verifies it + finds its next date before it reaches the queue.
+            </p>
             {mentioned.data.events.some((e: any) => !e.tracked) && (
               <button
                 onClick={() => researchMentioned.mutate()}
                 disabled={researchMentioned.isPending}
                 className="btn-primary text-xs shrink-0"
               >
-                {researchMentioned.isPending
-                  ? "Researching…"
-                  : "Research the untracked →"}
+                {researchMentioned.isPending ? "Researching…" : "Research the untracked →"}
               </button>
             )}
           </div>
-          <p className="text-xs text-ink-500 mb-3 max-w-[60ch]">
-            Pulled from real conversations — when a contact tells a rep where they
-            go, that's a signal. Research the untracked ones and the agent
-            verifies each + finds its next date; confirmed ones drop into the
-            approval queue below (nothing is added without your call).
-          </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="divide-y divide-ink-100 mt-2">
             {mentioned.data.events.map((e: any) => (
-              <span
-                key={e.name}
-                className={
-                  "badge " +
-                  (e.tracked
-                    ? "bg-ink-100 text-ink-600"
-                    : "bg-amber-100 text-amber-900 border border-amber-300")
-                }
-                title={
-                  e.tracked
-                    ? `${e.contacts} contact(s) mentioned this — already tracked`
-                    : `${e.contacts} contact(s) mentioned this — not in your events yet`
-                }
-              >
-                {e.name} · {e.contacts}
-                {e.tracked ? " · tracked" : " · not tracked"}
-              </span>
+              <div key={e.name} className="py-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-display font-semibold text-ink-900">{e.name}</span>
+                  {e.tracked ? (
+                    <span className="stamp" style={{ color: "oklch(0.5 0.015 160)", background: "oklch(0.95 0.006 160)", borderColor: "oklch(0.88 0.01 160)" }}>tracked</span>
+                  ) : (
+                    <span className="stamp" style={{ color: "oklch(0.48 0.13 55)", background: "oklch(0.96 0.04 70)", borderColor: "oklch(0.86 0.07 65)" }}>not tracked</span>
+                  )}
+                  <span className="text-xs text-ink-400">{e.contacts} buyer{e.contacts === 1 ? "" : "s"} mentioned</span>
+                </div>
+                {/* provenance — which buyer (and which ICP company) told which rep */}
+                {e.sources?.length ? (
+                  <div className="text-xs text-ink-500 mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+                    {e.sources.map((s: any, i: number) => (
+                      <span key={i}>
+                        <span className="text-ink-700">{s.contact}</span>
+                        {s.company ? ` · ${s.company}` : ""}
+                        {s.rep ? <span className="text-ink-400"> → told {s.rep}</span> : ""}
+                        {i < e.sources.length - 1 ? <span className="text-ink-300"> ·</span> : ""}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             ))}
           </div>
           {researchMentioned.data?.not_found?.length ? (
             <p className="text-xs text-ink-500 mt-3">
-              Couldn't confirm as upcoming events:{" "}
-              {researchMentioned.data.not_found.join(", ")}.
+              Couldn't confirm as upcoming events: {researchMentioned.data.not_found.join(", ")}.
             </p>
           ) : null}
         </section>
+      ) : (
+        <section className="card p-4 mb-5 text-sm text-ink-500">
+          No events mentioned in conversations yet — they appear here as reps capture
+          encounters where a buyer names an event they attend.
+        </section>
       )}
 
-      <div className="label mb-2">
-        Pending approval ({pending.data?.proposals?.length || 0})
+      <div className="rule-label mb-2">
+        <span>The queue · {pending.data?.proposals?.length || 0} awaiting your approval</span>
       </div>
       <div className="space-y-2">
         {pending.data?.proposals?.map((p) => (
