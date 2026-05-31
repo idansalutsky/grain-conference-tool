@@ -48,7 +48,7 @@ function densityOf(e: EventRowData): number | null {
   return null;
 }
 
-export function EventRow({ e }: { e: EventRowData }) {
+export function EventRow({ e, hideCoverage }: { e: EventRowData; hideCoverage?: boolean }) {
   const [open, setOpen] = useState(false);
   const detail = useQuery({
     queryKey: ["conference", e.id],
@@ -100,11 +100,13 @@ export function EventRow({ e }: { e: EventRowData }) {
           <div className="text-base font-semibold tabular-nums text-ink-700">{Math.round(e.score ?? 0)}</div>
           <div className="text-[0.6rem] uppercase tracking-wider text-ink-400 mt-0.5">score</div>
         </div>
-        <div className="w-[5.5rem] shrink-0 text-right">
-          {exposed ? <span className="stamp" style={STAMP_WARN}>cover it</span>
-            : uncovered ? <span className="text-xs text-ink-400">open</span>
-            : <span className="stamp" style={STAMP_OK}>{e.reps_assigned} rep{e.reps_assigned === 1 ? "" : "s"}</span>}
-        </div>
+        {!hideCoverage && (
+          <div className="w-[5.5rem] shrink-0 text-right">
+            {exposed ? <span className="stamp" style={STAMP_WARN}>cover it</span>
+              : uncovered ? <span className="text-xs text-ink-400">open</span>
+              : <span className="stamp" style={STAMP_OK}>{e.reps_assigned} rep{e.reps_assigned === 1 ? "" : "s"}</span>}
+          </div>
+        )}
         <span className={"text-ink-300 shrink-0 transition-transform " + (open ? "rotate-180" : "")} aria-hidden>▾</span>
       </button>
 

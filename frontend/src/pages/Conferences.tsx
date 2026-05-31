@@ -236,7 +236,7 @@ export function ConferencesPage() {
       {error && <div className="card p-4 text-tire text-sm">Error: {toastErrorMessage(error)}</div>}
 
       <div className="card divide-y divide-ink-100 overflow-hidden">
-        {filtered.map((c) => <EventRow key={c.id} e={c} />)}
+        {filtered.map((c) => <EventRow key={c.id} e={c} hideCoverage />)}
         {filtered.length === 0 && !isLoading && (
           <div className="p-8 text-center text-sm text-ink-500">No events match these filters.</div>
         )}
