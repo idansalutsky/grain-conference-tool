@@ -65,6 +65,20 @@ export function ContactDetailPage() {
   if (!contact.data) return <div className="text-sm text-ink-500">Contact not found.</div>;
   const c = contact.data;
 
+  // The cross-conference STORY, computed from the encounter trail — turns a count
+  // into an arc the rep can read at a glance (the brief's whole point).
+  const encs: any[] = c.encounters || [];
+  const dated = encs.filter((e) => e.captured_at).sort((a, b) => (a.captured_at < b.captured_at ? -1 : 1));
+  const nConfs = new Set(encs.map((e) => e.conference_id).filter(Boolean)).size;
+  const spanMonths = dated.length > 1
+    ? Math.max(1, Math.round((new Date(dated[dated.length - 1].captured_at).getTime() - new Date(dated[0].captured_at).getTime()) / (86400000 * 30)))
+    : 0;
+  const sent = dated.filter((e) => e.sentiment != null);
+  const firstS = sent[0]?.sentiment;
+  const lastS = sent[sent.length - 1]?.sentiment;
+  const meetingsAsked = encs.filter((e) => e.meeting_requested).length;
+  const isCrossConf = nConfs >= 2;
+
   return (
     <div>
       <Link to="/contacts" className="text-xs text-ink-500 hover:text-ink-900">
@@ -85,6 +99,33 @@ export function ContactDetailPage() {
         )}
         {c.primary_email && <> · {c.primary_email}</>}
       </p>
+
+      {/* THE CROSS-CONFERENCE READ — the headline of the whole product: not a
+          count, but the trajectory across events, with the interpretation. */}
+      <section className="card p-5 mb-4" style={{ background: "oklch(0.98 0.012 160)", borderColor: "oklch(0.9 0.02 160)" }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <ArcBadge kind={c.arc_verdict} />
+          <span className="font-display font-semibold text-ink-900">
+            {isCrossConf
+              ? `Met at ${nConfs} conferences${spanMonths ? ` over ${spanMonths} month${spanMonths === 1 ? "" : "s"}` : ""}`
+              : `Met at ${nConfs || 1} conference${(nConfs || 1) === 1 ? "" : "s"}`}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm mb-2">
+          <span><span className="font-semibold tabular-nums">{nConfs || encs.length}</span> <span className="text-ink-500">conference{(nConfs || encs.length) === 1 ? "" : "s"}</span></span>
+          {spanMonths > 0 && <span><span className="font-semibold tabular-nums">{spanMonths}</span> <span className="text-ink-500">month span</span></span>}
+          {firstS != null && (
+            <span className="text-ink-500">sentiment <span className="font-semibold text-ink-900 tabular-nums">{firstS}{lastS != null && lastS !== firstS ? ` → ${lastS}` : ""}</span>/5</span>
+          )}
+          <span><span className="font-semibold tabular-nums">{meetingsAsked}</span> <span className="text-ink-500">meeting{meetingsAsked === 1 ? "" : "s"} asked</span></span>
+        </div>
+        {c.arc_summary && <p className="text-sm text-ink-800 leading-relaxed max-w-[74ch]">{c.arc_summary}</p>}
+        {isCrossConf && meetingsAsked === 0 && (
+          <p className="text-xs text-ink-500 mt-1.5">
+            Across {nConfs} events and {spanMonths || "several"} months, no meeting yet — read the trail below before you decide warm vs. tire-kicker.
+          </p>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 space-y-4">

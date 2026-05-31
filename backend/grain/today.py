@@ -145,7 +145,17 @@ def _active_nudges(limit: int = 3) -> list[dict]:
             "ORDER BY updated_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            # The cross-conference proof: how many distinct events this person was
+            # met at — so "warming across conferences" is shown, not just claimed.
+            d["n_conferences"] = conn.execute(
+                "SELECT COUNT(DISTINCT conference_id) FROM encounters "
+                "WHERE contact_id = ? AND conference_id IS NOT NULL", (d["id"],)
+            ).fetchone()[0]
+            out.append(d)
+        return out
     finally:
         conn.close()
 

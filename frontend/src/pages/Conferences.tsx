@@ -119,6 +119,7 @@ export function ConferencesPage() {
   const [region, setRegion] = useState("All");
   const [search, setSearch] = useState("");
   const [when, setWhen] = useState<"upcoming" | "past" | "all">("upcoming");
+  const [sort, setSort] = useState<"fit" | "soonest" | "largest">("fit");
   const [adding, setAdding] = useState(false);
   const [tuning, setTuning] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({ region: "EU", format: "expo" });
@@ -159,6 +160,12 @@ export function ConferencesPage() {
         .toLowerCase().includes(search.toLowerCase());
     }
     return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === "soonest") return (a.start_date || "9999") < (b.start_date || "9999") ? -1 : 1;
+    if (sort === "largest") return (b.estimated_attendance || 0) - (a.estimated_attendance || 0);
+    return (b.score || 0) - (a.score || 0); // best fit (default)
   });
 
   const set = (k: string) => (e: any) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -206,7 +213,7 @@ export function ConferencesPage() {
             <button className="btn-primary" disabled={!form.name?.trim() || create.isPending} onClick={() => create.mutate()}>
               {create.isPending ? "Scoring…" : "Add & score"}
             </button>
-            <span className="text-xs text-ink-500">Scored instantly by the same 7-factor model.</span>
+            <span className="text-xs text-ink-500">Scored instantly by the same 4-factor model.</span>
           </div>
         </section>
       )}
@@ -230,14 +237,22 @@ export function ConferencesPage() {
           <span className="label mr-1">Region</span>
           {REGIONS.map((r) => <Chip key={r} active={region === r} onClick={() => setRegion(r)}>{r}</Chip>)}
         </div>
+        <div className="flex gap-1 items-center sm:ml-auto">
+          <span className="label mr-1">Sort</span>
+          <select className="input h-7 !py-0 text-xs" value={sort} onChange={(e) => setSort(e.target.value as any)}>
+            <option value="fit">Best fit</option>
+            <option value="soonest">Soonest</option>
+            <option value="largest">Largest audience</option>
+          </select>
+        </div>
       </div>
 
       {isLoading && <div className="text-sm text-ink-500">Loading…</div>}
       {error && <div className="card p-4 text-tire text-sm">Error: {toastErrorMessage(error)}</div>}
 
       <div className="card divide-y divide-ink-100 overflow-hidden">
-        {filtered.map((c) => <EventRow key={c.id} e={c} hideCoverage />)}
-        {filtered.length === 0 && !isLoading && (
+        {sorted.map((c) => <EventRow key={c.id} e={c} hideCoverage />)}
+        {sorted.length === 0 && !isLoading && (
           <div className="p-8 text-center text-sm text-ink-500">No events match these filters.</div>
         )}
       </div>

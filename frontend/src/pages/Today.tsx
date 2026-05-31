@@ -167,6 +167,9 @@ export function TodayPage() {
                   <span className="text-sm text-ink-500 truncate">
                     {n.primary_title ? `${n.primary_title} · ` : ""}{n.primary_company || "?"}
                   </span>
+                  {n.n_conferences > 1 && (
+                    <span className="text-xs text-ink-400 ml-auto shrink-0">met at {n.n_conferences} events</span>
+                  )}
                 </div>
                 <div className="pt-1 mt-auto border-t border-ink-100">
                   <Link to={`/contacts/${n.id}`} className="btn-primary text-xs mt-3">Open contact →</Link>

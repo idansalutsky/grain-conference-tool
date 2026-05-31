@@ -23,6 +23,10 @@ export function PlanningPage() {
     queryKey: ["clusters"],
     queryFn: () => api.get<{ clusters: any[] }>("/api/planning/clusters"),
   });
+  const gaps = useQuery({
+    queryKey: ["gaps"],
+    queryFn: () => api.get<any>("/api/planning/gaps"),
+  });
 
   return (
     <div>
@@ -73,6 +77,39 @@ export function PlanningPage() {
           <div className="text-sm text-ink-500">No coverage data yet.</div>
         )}
       </section>
+
+      {/* Where we're under-invested — high-fit events with nobody assigned (a
+          brief requirement). Grounded in coverage: tier-A/B with zero reps. */}
+      {(gaps.data?.total_uncovered_a > 0 || gaps.data?.total_uncovered_b > 0) && (
+        <section className="card p-4 mb-4">
+          <div className="flex items-baseline justify-between gap-3 mb-3">
+            <h2 className="label">Where we're under-invested</h2>
+            <span className="text-xs text-ink-500">high-fit events with no one assigned</span>
+          </div>
+          {gaps.data?.uncovered_tier_a?.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-semibold text-ink-700 mb-1.5">
+                Tier A · {gaps.data.total_uncovered_a} uncovered
+              </div>
+              <div className="divide-y divide-ink-100">
+                {gaps.data.uncovered_tier_a.slice(0, 6).map((c: any) => (
+                  <Link key={c.id} to={`/conferences/${c.id}`}
+                        className="flex items-baseline gap-2 py-1.5 text-sm hover:text-brand">
+                    <span className="font-mono text-ink-400 w-20 shrink-0 text-xs">{(c.start_date || "").slice(0, 10)}</span>
+                    <span className="truncate">{c.name}</span>
+                    <span className="text-ink-400 text-xs ml-auto shrink-0">{c.city}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+          {gaps.data?.total_uncovered_b > 0 && (
+            <div className="text-xs text-ink-500">
+              + {gaps.data.total_uncovered_b} tier-B events also uncovered.
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="card p-4">
         <div className="flex justify-between items-baseline mb-3">
