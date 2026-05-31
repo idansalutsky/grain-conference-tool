@@ -1,16 +1,25 @@
 """Conference ICP-fit scoring.
 
-7 factors, each yielding a 0..1 sub-score + a transparent evidence string.
-Default weights sum to 1.0; a tenant can re-tune via the Settings UI without
-changing code. The 7th factor (historical_yield) is opt-in; defaults to 0.
+FOUR factors, each a 0..1 sub-score from a measured or grounded signal, plus a
+transparent evidence string. Weights are relative emphasis (normalised to 1.0 at
+scoring time) so the score always lands on 0..100. A manager re-tunes them in the
+UI without touching code.
 
-  vertical_concentration  0.25  - is this an event where Grain's verticals concentrate?
-  buyer_reachability      0.25  - can we reach Grain's BUYING COMMITTEE here?
-  fx_exposure_proxy       0.20  - themes carrying FX-relevant signal
-  reachability            0.10  - format/size - can a rep actually meet people?
-  geo_cost_efficiency     0.10  - region weighted by typical travel cost
-  icp_strategic_fit       0.10  - vertical-strategic-fit + ICP-company density
-  historical_yield        0.00  - boost from prior meetings/deals (when we have data)
+  buyer_density  0.40  - the headline: measured % of the audience that's
+                         finance/treasury (the BUYER) plus the reachable
+                         commercial committee (the door-openers). From the
+                         scraped audience composition when we have it.
+  fx_exposure    0.30  - does the agenda centre on cross-border / FX / settlement
+                         / multi-currency — i.e. Grain's actual product.
+  vertical_fit   0.20  - does the event sit on a Grain go-to-market wedge
+                         (travel/booking, payments/PSP, marketplaces, treasury),
+                         and how ICP-shaped is the room.
+  access         0.10  - can a rep actually work it: format + size, weighted by
+                         regional travel cost.
+
+We deliberately collapsed the old 7-factor model (which had two near-duplicate
+"vertical" factors, two "reachability" factors, and an always-zero historical
+yield) into these four. Fewer, clearer knobs a salesperson can defend.
 
 METHODOLOGY NOTE (re-tuned 2026-05).
 The previous model had two structural problems that buried Grain's stated LEAD
@@ -53,20 +62,22 @@ from . import db
 
 
 DEFAULT_WEIGHTS = {
-    "vertical_concentration": 0.25,
-    "buyer_reachability": 0.25,
-    "fx_exposure_proxy": 0.20,
-    "reachability": 0.10,
-    "geo_cost_efficiency": 0.10,
-    "icp_strategic_fit": 0.10,
-    "historical_yield": 0.00,  # opt-in
+    "buyer_density": 0.40,
+    "fx_exposure": 0.30,
+    "vertical_fit": 0.20,
+    "access": 0.10,
 }
 
 # Backwards-compat: a tenant who set the OLD setting keys in the DB shouldn't
-# silently fall back to defaults after this rename. Map old -> new.
+# silently fall back to defaults after the 7->4 collapse. Map old -> new.
 _RENAMED_WEIGHTS = {
-    "buyer_density": "buyer_reachability",
-    "competitive_validation": "icp_strategic_fit",
+    "buyer_reachability": "buyer_density",
+    "fx_exposure_proxy": "fx_exposure",
+    "vertical_concentration": "vertical_fit",
+    "icp_strategic_fit": "vertical_fit",
+    "competitive_validation": "vertical_fit",
+    "reachability": "access",
+    "geo_cost_efficiency": "access",
 }
 
 
@@ -331,6 +342,31 @@ def _icp_strategic_fit(conf: dict) -> tuple[float, str]:
     return round(wedge, 2), f"strategic fit: {v or '?'} wedge ({wedge:.2f}), audience mix unknown"
 
 
+def _vertical_fit(conf: dict) -> tuple[float, str]:
+    """Is this event on a Grain go-to-market wedge, and how ICP-shaped is the room?
+
+    Merges the old `vertical_concentration` (is the vertical in-ICP at all) with
+    `icp_strategic_fit` (graded wedge centrality + measured ICP-company density),
+    so there's ONE clear "vertical fit" factor instead of two overlapping ones.
+    """
+    membership, _ = _vertical_concentration(conf)   # in-ICP-vertical signal
+    graded, ev = _icp_strategic_fit(conf)           # wedge centrality + density
+    raw = round(0.35 * membership + 0.65 * graded, 2)
+    return raw, ev
+
+
+def _access(conf: dict) -> tuple[float, str]:
+    """Can a rep actually work this room, at a sane travel cost?
+
+    Merges the old `reachability` (format + size — is there a floor to work)
+    with `geo_cost_efficiency` (regional travel cost) into one practical factor.
+    """
+    reach, r_ev = _reachability(conf)
+    geo, g_ev = _geo_cost_efficiency(conf)
+    raw = round(0.7 * reach + 0.3 * geo, 2)
+    return raw, f"{r_ev}; {g_ev}"
+
+
 def _historical_yield(conf: dict) -> tuple[float, str]:
     """Boost from prior meetings + deals at this conference (or its series)."""
     cid = conf.get("id")
@@ -416,13 +452,10 @@ def score_conference(conf: dict, *, icp_competitors: Optional[list[str]] = None,
               for k, v in raw_w.items()}
 
     scorers = [
-        ("vertical_concentration", _vertical_concentration(conf)),
-        ("buyer_reachability", _buyer_reachability(conf)),
-        ("fx_exposure_proxy", _fx_exposure_proxy(conf)),
-        ("reachability", _reachability(conf)),
-        ("geo_cost_efficiency", _geo_cost_efficiency(conf)),
-        ("icp_strategic_fit", _icp_strategic_fit(conf)),
-        ("historical_yield", _historical_yield(conf)),
+        ("buyer_density", _buyer_reachability(conf)),
+        ("fx_exposure", _fx_exposure_proxy(conf)),
+        ("vertical_fit", _vertical_fit(conf)),
+        ("access", _access(conf)),
     ]
 
     factors: list[FactorScore] = []
@@ -434,11 +467,13 @@ def score_conference(conf: dict, *, icp_competitors: Optional[list[str]] = None,
         factors.append(FactorScore(key=key, raw=raw, weight=w, weighted=weighted, evidence=ev))
 
     # Tiering is deliberately selective: A is the elite ~top-15% (the genuinely
-    # finance-dense rooms worth a booth), C is the clearly off-ICP tail
-    # (crypto-retail, consumer fairs, generic SaaS). Travel/marketplace events
-    # land as strong, visible B — honest, since a 12%-finance travel expo
-    # shouldn't outrank a 70%-finance treasury event.
-    tier = "A" if total >= 78 else "B" if total >= 58 else "C"
+    # finance-dense rooms worth a booth — treasury + the top payments anchors),
+    # C is the clearly off-ICP tail (generic SaaS, crypto-retail, consumer fairs).
+    # Travel/marketplace events land as strong, visible B — honest, since a
+    # 12%-finance travel expo shouldn't outrank a 70%-finance treasury event, but
+    # the travel/booking lead wedge is never junk. (Recalibrated for the 4-factor
+    # model: A>=75, B>=45 -> A27/B143/C25 on the live 195-event set.)
+    tier = "A" if total >= 75 else "B" if total >= 45 else "C"
     return ConferenceScore(total=total, tier=tier, factors=factors)
 
 
@@ -474,7 +509,7 @@ def get_score_override(conference_id: str) -> Optional[float]:
 
 
 def _tier_for(score: float) -> str:
-    return "A" if score >= 78 else "B" if score >= 58 else "C"
+    return "A" if score >= 75 else "B" if score >= 45 else "C"
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +542,8 @@ def _tier_for(score: float) -> str:
 CALIBRATION_MIN_SIGNALS = 3       # (a) no movement below this many overrides
 CALIBRATION_MAX_REL_STEP = 0.20   # (b) <= 20% relative move per weight per run
 WEIGHT_FLOOR = 0.02               # (c) clamp floor
-WEIGHT_CEIL = 0.40                # (c) clamp ceiling
+WEIGHT_CEIL = 0.50                # (c) clamp ceiling (buyer_density leads at 0.40,
+                                  #     so the ceiling must sit above it)
 
 # historical_yield is opt-in and defaults to 0.0; auto-calibration leaves it
 # alone (a 0-weight factor can't be credited a residual share, and we never want

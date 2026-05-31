@@ -23,10 +23,6 @@ export function PlanningPage() {
     queryKey: ["clusters"],
     queryFn: () => api.get<{ clusters: any[] }>("/api/planning/clusters"),
   });
-  const gaps = useQuery({
-    queryKey: ["gaps"],
-    queryFn: () => api.get<any>("/api/planning/gaps"),
-  });
 
   return (
     <div>
@@ -38,32 +34,12 @@ export function PlanningPage() {
         batched into one swing.
       </p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="card p-4">
-          <h2 className="label mb-3">Events per month, ahead</h2>
-          {coverage.data?.months?.filter((m: any) => m.month >= NOW_MONTH).length > 0 ? (
-            <div className="space-y-1.5">
-              {coverage.data.months.filter((m: any) => m.month >= NOW_MONTH).map((m: any) => (
-                <div key={m.month} className="flex items-center gap-3 text-xs">
-                  <span className="w-20 font-mono text-ink-700">{m.month}</span>
-                  <div className="flex-1 flex h-5 rounded overflow-hidden bg-ink-100">
-                    {(["A", "B", "C"] as const).map((t) =>
-                      m.by_tier[t] > 0 ? (
-                        <div key={t} style={{ flex: m.by_tier[t], background: TIER_FILL[t] }}
-                             title={`Tier ${t}: ${m.by_tier[t]}`} />
-                      ) : null,
-                    )}
-                  </div>
-                  <span className="text-ink-500 w-12 text-right">
-                    {m.n_conferences} event{m.n_conferences > 1 ? "s" : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-sm text-ink-500">No coverage data yet.</div>
-          )}
-          <div className="text-[10px] text-ink-500 mt-3 flex gap-3">
+      {/* Compact density strip — how the year is loaded by month, by tier. Kept
+          small so the actionable trip clusters sit high on the page. */}
+      <section className="card p-4 mb-4">
+        <div className="flex items-baseline justify-between gap-3 mb-3">
+          <h2 className="label">Events per month, ahead</h2>
+          <div className="text-[10px] text-ink-500 flex gap-3">
             {(["A", "B", "C"] as const).map((t) => (
               <span key={t}>
                 <span className="inline-block w-3 h-2 align-middle mr-1" style={{ background: TIER_FILL[t] }} />
@@ -71,50 +47,34 @@ export function PlanningPage() {
               </span>
             ))}
           </div>
-        </section>
+        </div>
+        {coverage.data?.months?.filter((m: any) => m.month >= NOW_MONTH).length > 0 ? (
+          <div className="flex items-end gap-1.5 h-28">
+            {(() => {
+              const months = coverage.data.months.filter((m: any) => m.month >= NOW_MONTH);
+              const max = Math.max(...months.map((x: any) => x.n_conferences), 1);
+              return months.map((m: any) => (
+                <div key={m.month} className="flex-1 flex flex-col items-center justify-end h-full"
+                     title={`${m.month}: ${m.n_conferences} events`}>
+                  <div className="w-full flex flex-col-reverse rounded-t overflow-hidden"
+                       style={{ height: `${Math.max(3, (m.n_conferences / max) * 86)}%` }}>
+                    {(["A", "B", "C"] as const).map((t) =>
+                      m.by_tier[t] > 0 ? (
+                        <div key={t} style={{ flex: m.by_tier[t], background: TIER_FILL[t] }} />
+                      ) : null,
+                    )}
+                  </div>
+                  <span className="text-[0.6rem] font-mono text-ink-400 mt-1">{m.month.slice(2)}</span>
+                </div>
+              ));
+            })()}
+          </div>
+        ) : (
+          <div className="text-sm text-ink-500">No coverage data yet.</div>
+        )}
+      </section>
 
-        <section className="card p-4">
-          <h2 className="label mb-3">Gaps — under-invested high-tier events</h2>
-          {gaps.data?.uncovered_tier_a?.length > 0 ? (
-            <div>
-              <div className="text-xs font-medium text-ink-700 mb-1">
-                Tier A · {gaps.data.total_uncovered_a} uncovered
-              </div>
-              <ul className="space-y-1 mb-3">
-                {gaps.data.uncovered_tier_a.map((c: any) => (
-                  <li key={c.id} className="text-xs">
-                    <Link to={`/conferences/${c.id}`} className="hover:underline">
-                      {c.name}
-                    </Link>
-                    <span className="text-ink-500"> — {c.start_date} · {c.city}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <div className="text-xs text-ink-500">All tier-A events covered.</div>
-          )}
-          {gaps.data?.uncovered_tier_b?.length > 0 && (
-            <div>
-              <div className="text-xs font-medium text-ink-700 mb-1">
-                Tier B · {gaps.data.total_uncovered_b} uncovered
-              </div>
-              <ul className="space-y-1">
-                {gaps.data.uncovered_tier_b.slice(0, 6).map((c: any) => (
-                  <li key={c.id} className="text-xs">
-                    <Link to={`/conferences/${c.id}`} className="hover:underline">
-                      {c.name}
-                    </Link>
-                    <span className="text-ink-500"> — {c.start_date} · {c.city}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      </div>
-
-      <section className="card p-4 mt-4">
+      <section className="card p-4">
         <div className="flex justify-between items-baseline mb-3">
           <h2 className="label">Trip clusters</h2>
           <span className="text-xs text-ink-500">

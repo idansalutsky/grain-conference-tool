@@ -1,4 +1,4 @@
-"""Scoring tests — verify the 7 factors produce defensible numbers."""
+"""Scoring tests — verify the 4 factors produce defensible numbers."""
 from __future__ import annotations
 
 from grain import scoring
@@ -33,21 +33,15 @@ def test_non_icp_event_scores_low():
     }
     s = scoring.score_conference(conf)
     assert s.tier in ("C", "B"), f"got tier {s.tier} score {s.total}"
-    # buyer_reachability and fx_exposure_proxy should be near-zero.
-    # (Factor was renamed buyer_density -> buyer_reachability when the model
-    # was re-tuned to credit the whole reachable buying committee, not just CFO
-    # density; the assertion intent — a non-ICP event has low buyer reach — is
-    # unchanged.)
+    # A non-ICP event has low buyer density and low FX-agenda relevance.
     factors = {f.key: f for f in s.factors}
-    assert factors["fx_exposure_proxy"].raw <= 0.4
-    assert factors["buyer_reachability"].raw <= 0.6
+    assert factors["fx_exposure"].raw <= 0.4
+    assert factors["buyer_density"].raw <= 0.6
 
 
 def test_factor_weights_sum_to_1():
-    """The default weights should add up to 1.0 (modulo opt-in historical_yield)."""
-    base = {k: v for k, v in scoring.DEFAULT_WEIGHTS.items()
-            if k != "historical_yield"}
-    assert abs(sum(base.values()) - 1.0) < 0.01
+    """The default factor weights should add up to 1.0."""
+    assert abs(sum(scoring.DEFAULT_WEIGHTS.values()) - 1.0) < 0.01
 
 
 def test_every_factor_has_evidence():
@@ -71,4 +65,4 @@ def test_breakdown_serializes():
     s = scoring.score_conference(conf)
     d = s.to_breakdown_dict()
     assert "total" in d and "tier" in d
-    assert len(d["factors"]) == 7
+    assert len(d["factors"]) == 4

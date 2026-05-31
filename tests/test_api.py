@@ -44,12 +44,12 @@ def test_settings_parameters_listed():
 
 
 def test_setting_update_persists():
-    body = {"key": "scoring.vertical_concentration", "value": 0.27}
+    body = {"key": "scoring.vertical_fit", "value": 0.27}
     r = client.put("/api/settings", json=body)
     assert r.status_code == 200
     again = client.get("/api/settings").json()
     cur = next(p["current"] for p in again["parameters"]
-               if p["key"] == "scoring.vertical_concentration")
+               if p["key"] == "scoring.vertical_fit")
     assert abs(float(cur) - 0.27) < 0.001
 
 

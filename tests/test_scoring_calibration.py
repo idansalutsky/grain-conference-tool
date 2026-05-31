@@ -81,10 +81,10 @@ def test_below_min_signals_is_no_op():
 
 
 def test_overrides_up_move_strong_factor_up_bounded_and_normalised():
-    """>=3 overrides pushing high-buyer_reachability events UP nudge that factor
+    """>=3 overrides pushing high-buyer_density events UP nudge that factor
     UP, bounded (<=20% rel pre-norm), clamped to [0.02,0.40], and sum to 1.0."""
     _clear_overrides()
-    # Treasury events: buyer_reachability is one of the strongest factors.
+    # Treasury events: buyer_density is one of the strongest factors.
     treasury_audience = {"cfo_treasury_finance_pct": 78,
                          "marketing_sales_pct": 12,
                          "engineering_product_pct": 5, "other_pct": 5}
@@ -100,9 +100,9 @@ def test_overrides_up_move_strong_factor_up_bounded_and_normalised():
     assert res["n_signals"] == 4
     assert res["would_change"] is True
     # The strong factor for treasury moves UP.
-    assert prop["buyer_reachability"] > cur["buyer_reachability"]
+    assert prop["buyer_density"] > cur["buyer_density"]
     # Bounded pre-norm step on the strongest factor (<= 20% rel, allow renorm slack).
-    rel = (prop["buyer_reachability"] - cur["buyer_reachability"]) / cur["buyer_reachability"]
+    rel = (prop["buyer_density"] - cur["buyer_density"]) / cur["buyer_density"]
     assert rel <= scoring.CALIBRATION_MAX_REL_STEP + 0.02
     # Clamp + sum-to-1.0 invariants.
     tunable = [k for k in scoring.DEFAULT_WEIGHTS if k != "historical_yield"]
@@ -157,6 +157,6 @@ def test_overrides_down_move_factor_down():
     res = scoring.learn_scoring_weights()
     cur, prop = res["current_weights"], res["proposed_weights"]
     assert res["would_change"] is True
-    # buyer_reachability is strong for treasury, so a DOWN push lowers it.
-    assert prop["buyer_reachability"] < cur["buyer_reachability"]
+    # buyer_density is strong for treasury, so a DOWN push lowers it.
+    assert prop["buyer_density"] < cur["buyer_density"]
     _clear_overrides()

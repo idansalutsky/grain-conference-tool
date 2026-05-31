@@ -3,9 +3,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { TierBadge } from "@/components/Badges";
 import { SubTabs } from "@/components/SubTabs";
 import { EVENTS_TABS } from "@/components/eventsTabs";
+import { EventRow } from "@/components/EventRow";
 import { useToast, toastErrorMessage } from "@/components/Toast";
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -14,6 +14,8 @@ interface Conference {
   id: string; name: string; start_date?: string; end_date?: string;
   city?: string; country?: string; region?: string; vertical?: string;
   format?: string; estimated_attendance?: number; score?: number; tier?: string;
+  cost_pass_usd?: number | null; audience_composition_json?: string | null;
+  reps_assigned?: number;
 }
 
 const TIERS = ["All", "A", "B", "C"];
@@ -23,19 +25,14 @@ const REGIONS = ["All", "NA", "EU", "APAC", "MEA", "LATAM"];
 // MEASURES — so the model reads as a defensible glass box, not arbitrary knobs.
 // Keys match the live scoring factors in backend/grain/scoring.py.
 const FACTOR_META: Record<string, { label: string; measures: string }> = {
-  "scoring.buyer_reachability": { label: "Buyer density", measures: "measured % finance/treasury + reachable commercial committee" },
-  "scoring.fx_exposure_proxy": { label: "FX exposure", measures: "agenda themes on cross-border / FX / settlement" },
-  "scoring.vertical_concentration": { label: "Vertical fit", measures: "event vertical sits on a Grain wedge (travel / payments / treasury)" },
-  "scoring.icp_strategic_fit": { label: "Strategic wedge", measures: "GTM-wedge centrality + ICP-shaped share of the room" },
-  "scoring.reachability": { label: "Floor access", measures: "format + size — can a rep actually work the room" },
-  "scoring.geo_cost_efficiency": { label: "Travel cost", measures: "region travel-cost efficiency" },
-  "scoring.historical_yield": { label: "Past yield", measures: "prior meetings/deals here (0 until we capture some)" },
+  "scoring.buyer_density": { label: "Buyer density", measures: "measured % finance/treasury (the buyer) + reachable commercial committee" },
+  "scoring.fx_exposure": { label: "FX exposure", measures: "does the agenda centre on cross-border / FX / settlement — Grain's product" },
+  "scoring.vertical_fit": { label: "Vertical fit", measures: "event sits on a Grain wedge (travel / payments / treasury) + ICP-shaped room" },
+  "scoring.access": { label: "Access", measures: "can a rep work it — format + size, weighted by travel cost" },
 };
 // Show the factors in priority order, not registry order.
 const FACTOR_ORDER = [
-  "scoring.buyer_reachability", "scoring.fx_exposure_proxy",
-  "scoring.vertical_concentration", "scoring.icp_strategic_fit",
-  "scoring.reachability", "scoring.geo_cost_efficiency", "scoring.historical_yield",
+  "scoring.buyer_density", "scoring.fx_exposure", "scoring.vertical_fit", "scoring.access",
 ];
 
 // Live scoring tuner — drag a weight, every event re-scores and the list
@@ -239,24 +236,7 @@ export function ConferencesPage() {
       {error && <div className="card p-4 text-tire text-sm">Error: {toastErrorMessage(error)}</div>}
 
       <div className="card divide-y divide-ink-100 overflow-hidden">
-        {filtered.map((c) => (
-          <Link to={`/conferences/${c.id}`} key={c.id}
-                className="flex items-center gap-4 px-4 py-3 hover:bg-ink-50 transition-colors">
-            <div className="font-display text-2xl font-bold w-12 text-right tabular-nums text-ink-900">
-              {c.score?.toFixed(0) ?? "—"}
-            </div>
-            <TierBadge tier={c.tier} />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-ink-900 truncate">{c.name}</div>
-              <div className="text-xs text-ink-500 mt-0.5 truncate">
-                {c.start_date} · {c.city || "?"}, {c.country || "?"} · {c.format || "?"}
-                {c.estimated_attendance ? ` · ${c.estimated_attendance.toLocaleString()} attendees` : ""}
-                {" · "}<span className="text-ink-700 font-medium">{c.vertical || "?"}</span>
-              </div>
-            </div>
-            <div className="text-ink-300 text-lg">→</div>
-          </Link>
-        ))}
+        {filtered.map((c) => <EventRow key={c.id} e={c} />)}
         {filtered.length === 0 && !isLoading && (
           <div className="p-8 text-center text-sm text-ink-500">No events match these filters.</div>
         )}

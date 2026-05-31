@@ -57,9 +57,21 @@ def list_conferences(
     try:
         rows = conn.execute(sql, params + [limit, offset]).fetchall()
         total = conn.execute(count_sql, params).fetchone()[0]  # respects filters
+        # How many reps cover each event — so the list rows can show the same
+        # coverage signal as the dashboard ("3 reps" / "cover it") in one query.
+        rep_counts = {
+            r[0]: r[1] for r in conn.execute(
+                "SELECT conference_id, COUNT(*) FROM coverage GROUP BY conference_id"
+            ).fetchall()
+        }
     finally:
         conn.close()
-    return {"total": total, "count": len(rows), "items": [_row(r) for r in rows]}
+    items = []
+    for r in rows:
+        d = _row(r)
+        d["reps_assigned"] = rep_counts.get(d["id"], 0)
+        items.append(d)
+    return {"total": total, "count": len(rows), "items": items}
 
 
 class ConferenceIn(BaseModel):

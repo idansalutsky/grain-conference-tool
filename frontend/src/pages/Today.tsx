@@ -1,8 +1,8 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { TierBadge, ArcBadge } from "@/components/Badges";
+import { ArcBadge } from "@/components/Badges";
+import { EventRow } from "@/components/EventRow";
 import { toastErrorMessage } from "@/components/Toast";
 import { useDocumentTitle } from "@/lib/useDocumentTitle";
 
@@ -36,24 +36,10 @@ interface TodayPayload {
   review_needed_count: number;
 }
 
-const STAMP_WARN = { color: "oklch(0.48 0.13 55)", background: "oklch(0.96 0.04 70)", borderColor: "oklch(0.86 0.07 65)" };
-const STAMP_OK = { color: "oklch(0.42 0.09 158)", background: "oklch(0.95 0.03 158)", borderColor: "oklch(0.86 0.05 158)" };
 const STAMP_QUIET = { color: "oklch(0.5 0.015 160)", background: "oklch(0.95 0.006 160)", borderColor: "oklch(0.88 0.01 160)" };
-
-function whenLabel(d: number | null): string {
-  if (d == null) return "—";
-  if (d <= 0) return "now";
-  if (d < 31) return `${d}d`;
-  return `${Math.round(d / 30)}mo`;
-}
-function money(n: number | null): string {
-  if (n == null || n <= 0) return "—";
-  return "$" + Math.round(n).toLocaleString();
-}
 
 export function TodayPage() {
   useDocumentTitle("Dashboard");
-  const [openId, setOpenId] = useState<string | null>(null);
   const { data, isLoading, error } = useQuery({
     queryKey: ["today", LENS_REP_ID],
     queryFn: () => api.get<TodayPayload>(`/api/today/${LENS_REP_ID}`),
@@ -132,87 +118,7 @@ export function TodayPage() {
         </div>
 
         <div className="card divide-y divide-ink-100">
-          {events.map((e) => {
-            const open = openId === e.id;
-            const uncovered = e.reps_assigned === 0;
-            const exposed = uncovered && e.tier === "A";
-            return (
-              <div key={e.id}>
-                <button
-                  onClick={() => setOpenId(open ? null : e.id)}
-                  aria-expanded={open}
-                  className="w-full flex items-center gap-3 sm:gap-4 px-4 py-3 text-left hover:bg-ink-50 transition-colors"
-                >
-                  <div className="w-10 shrink-0 text-center">
-                    <div className="masthead text-base leading-none text-ink-900">{whenLabel(e.days_until)}</div>
-                    <div className="text-[0.6rem] uppercase tracking-wider text-ink-400 mt-0.5">out</div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-display font-semibold text-ink-900 truncate">{e.name}</div>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-500 mt-0.5">
-                      <span className="text-ink-700 font-medium">{e.vertical}</span>
-                      <span className="text-ink-300">·</span>
-                      <span>{e.city}, {e.country}</span>
-                      {e.buyer_density_pct != null && (
-                        <>
-                          <span className="text-ink-300">·</span>
-                          <span className="tabular-nums">{e.buyer_density_pct}% buyers</span>
-                        </>
-                      )}
-                      <span className="text-ink-300">·</span>
-                      <span className="tabular-nums">{money(e.cost_pass_usd)} pass</span>
-                    </div>
-                  </div>
-                  <TierBadge tier={e.tier} />
-                  <div className="w-12 shrink-0 text-right hidden sm:block">
-                    <div className="masthead text-base leading-none tabular-nums text-ink-900">{Math.round(e.score ?? 0)}</div>
-                    <div className="text-[0.6rem] uppercase tracking-wider text-ink-400 mt-0.5">score</div>
-                  </div>
-                  <div className="w-[5.5rem] shrink-0 text-right">
-                    {exposed ? (
-                      <span className="stamp" style={STAMP_WARN}>cover it</span>
-                    ) : uncovered ? (
-                      <span className="text-xs text-ink-400">open</span>
-                    ) : (
-                      <span className="stamp" style={STAMP_OK}>{e.reps_assigned} rep{e.reps_assigned === 1 ? "" : "s"}</span>
-                    )}
-                  </div>
-                  <span className={"text-ink-300 shrink-0 transition-transform " + (open ? "rotate-180" : "")} aria-hidden>▾</span>
-                </button>
-
-                {/* expandable detail — grid-rows transition, no layout thrash */}
-                <div className="grid transition-[grid-template-rows] duration-300 ease-out"
-                     style={{ gridTemplateRows: open ? "1fr" : "0fr" }}>
-                  <div className="overflow-hidden">
-                    <div className="px-4 pb-4 pt-1 pl-[4.5rem]">
-                      <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm">
-                        <Detail term="Dates" val={`${e.start_date || "?"}${e.end_date && e.end_date !== e.start_date ? ` → ${e.end_date}` : ""}`} />
-                        <Detail term="Region" val={e.region || "—"} />
-                        <Detail term="Audience" val={e.estimated_attendance ? `${e.estimated_attendance.toLocaleString()} att.` : "—"} />
-                        <Detail term="Pass" val={money(e.cost_pass_usd)} />
-                      </dl>
-                      {e.agenda_summary && (
-                        <p className="text-sm text-ink-600 mt-3 max-w-[70ch] leading-relaxed">{e.agenda_summary}</p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-2 mt-3">
-                        <span className="rule-label !mb-0"><span>Coverage</span></span>
-                        {e.covering_reps.length > 0 ? (
-                          e.covering_reps.map((r) => (
-                            <span key={r} className="stamp" style={STAMP_OK}>{r}</span>
-                          ))
-                        ) : (
-                          <span className="text-sm text-ink-500">No one assigned yet.</span>
-                        )}
-                        <Link to={`/conferences/${e.id}`} className="btn-primary text-xs ml-auto">
-                          {uncovered ? "Assign a rep →" : "Open event →"}
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {events.map((e) => <EventRow key={e.id} e={e} />)}
           <div className="px-4 py-2.5 text-right">
             <Link to="/conferences" className="text-xs text-brand hover:underline">All events & scoring →</Link>
           </div>
@@ -326,11 +232,3 @@ function Figure({ label, value, sub, tone }: { label: string; value: number | st
   );
 }
 
-function Detail({ term, val }: { term: string; val: string }) {
-  return (
-    <div>
-      <dt className="text-[0.65rem] uppercase tracking-wider text-ink-400">{term}</dt>
-      <dd className="text-ink-800 tabular-nums">{val}</dd>
-    </div>
-  );
-}
